@@ -1,0 +1,3 @@
+2023-07-07:
+
+Using the 24-bit "hello world" ASM project from <https://github.com/breakintoprogram/agon-projects> as base, I've constructed a build script that can assemble the binary using the Zilog ZDS II assembler. Whilst the command for assembling is part of the build script, the linking is done via the ZDS II IDE which produces the link script for us. The plan is to uncouple this and link directly from the build script by command-line invocation.

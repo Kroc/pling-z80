@@ -1,0 +1,10 @@
+# ignore anything beginning with "__"
+# (used to hide stuff from the repository)
+__*
+**/__*
+
+# don't include generated files
+build/**
+sdcard/mos/hello.bin
+
+*.wsp
