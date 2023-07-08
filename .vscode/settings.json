@@ -1,0 +1,13 @@
+{
+    "ez80-asm.diagnosticProvider": false,
+    "[ez80-asm]": {
+        "editor.tabSize": 8,
+        "editor.insertSpaces": false
+    },
+    "[log]": {
+        "editor.wordWrap":"bounded"
+    },
+    "files.associations": {
+        "*.asm"  : "ez80-asm"
+    }
+}
