@@ -5,3 +5,7 @@ Using the 24-bit "hello world" ASM project from <https://github.com/breakintopro
 2023-07-08:
 
 Didn't sleep; wrote the greatest language design I've ever done.
+
+2023-07-11:
+
+Added minimal CP/M build/bootstrap. Moved Agon build to "agon" folder and added "cpm" folder. RunCPM is used as the 'emulator'.

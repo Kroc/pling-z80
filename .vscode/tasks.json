@@ -4,10 +4,21 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build & Run",
+            "label": "Agon: Build & Run",
             "type": "shell",
             "windows": {
-                "command": "build.bat"
+                "command": "agon\\build.bat"
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },{
+            "label": "RunCPM: Build & Run",
+            "type": "shell",
+            "windows": {
+                "command": "cpm\\build.bat"
             },
             "problemMatcher": [],
             "group": {

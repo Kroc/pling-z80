@@ -1,4 +1,21 @@
 {
+    "editor.insertSpaces": true,
+    "editor.wordWrap": "wordWrapColumn",
+    "editor.wordWrapColumn": 80,
+    "editor.rulers": [
+        80
+    ],
+    "[asm]": {
+        "editor.tabSize": 8
+    },
+    "[wla-dx-asm]": {
+        "editor.tabSize": 8
+    },
+    "[markdown]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.wordWrap": "wordWrapColumn"
+    },
     "ez80-asm.diagnosticProvider": false,
     "[ez80-asm]": {
         "editor.tabSize": 8,

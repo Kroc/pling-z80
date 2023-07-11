@@ -1,0 +1,81 @@
+; ezOS CP/M (c) Kroc Camen 2023, MIT License
+; CP/M interface
+;
+.MEMORYMAP
+    DEFAULTSLOT 0
+    ; RUNCPM 60K, BDOS @ $FD00, BIOS @ $FE00
+    SLOT 0 START $0100 SIZE $FD00-$0100 NAME "TPA"
+.ENDME
+
+.ROMBANKSIZE $FD00-$0100
+.ROMBANKS 1
+
+NULL                    = 0
+LO                      = 0
+HI                      = 1
+
+BOOT                    = $0000
+TBASE                   = $0100         ; start of transient program area
+
+;===============================================================================
+.BANK 0 SLOT "TPA"
+.ORG TBASE
+
+        ; when a program is loaded in CP/M a small stack is created, enough
+        ; to call the BDOS/BIOS. we want to set the stack to the top of
+        ; memory although that depends were the TPA ends and the BDOS begins.
+        ;
+        ; the address at $05/06 points to the beginning of BDOS, so we if we
+        ; set the stack there the first push will go to BDOS-1.
+        ; on RunCPM this is $FCFF
+        ;
+        ld      HL,     [BDOS+HI]
+        ld      SP,     HL
+
+        ; since we've overwritten the CCP,
+        ; we need to restart CP/M when exiting
+        jp      BOOT
+
+;===============================================================================
+BDOS                    = $0005         ; call address to access BDOS
+
+; function              ; C             ; notes
+BDOS_RESET              = 0             ; system reset
+BDOS_CONIN              = 1             ; console input
+BDOS_CONOUT             = 2             ; console output
+BDOS_RDRIN              = 3             ; reader input
+BDOS_PUNOUT             = 4             ; punch output
+BDOS_LISTOUT            = 5             ; list output
+BDOS_DIRCON             = 6             ; direct console control
+BDOS_GETIO              = 7             ; get I/O byte
+BDOS_SETIO              = 8             ; set I/O byte
+BDOS_PRNSTR             = 9             ; print string
+BDOS_CONBUF             = 10            ; buffered console input (line input)
+BDOS_CONSTAT            = 11            ; get console status
+BDOS_VER                = 12            ; get version number
+BDOS_RSTDSK             = 13            ; reset disk system
+BDOS_SELDSK             = 14            ; select disk
+BDOS_OPEN               = 15            ; open file
+BDOS_CLOSE              = 16            ; close file
+BDOS_FIND1ST            = 17            ; search for first file
+BDOS_FINDNEXT           = 18            ; search for next file
+BDOS_DEL                = 19            ; delete file
+BDOS_READSEQ            = 20            ; read sequential
+BDOS_WRITESEQ           = 21            ; write sequential
+BDOS_MAKEFILE           = 22            ; create new file
+BDOS_RENFILE            = 23            ; rename file
+BDOS_LOGIN              = 24            ; return bitmap of present drives A-P
+BDOS_CURDSK             = 25            ; get current disk
+BDOS_SETDMA             = 26            ; set DMA address at $0008
+BDOS_GETADDR            = 27            ; get addr of disk allocation
+BDOS_WRTPTRCT           = 28            ; write protect disk
+BDOS_GETRO              = 29            ; get read-only bitmap for drives A-P
+BDOS_SETATTR            = 30            ; set file attributes
+BDOS_DSKPARMS           = 31            ; get file parameters addr
+BDOS_USER               = 32            ; set/return user number
+BDOS_READRND            = 33            ; read random-access
+BDOS_WRITERND           = 34            ; write random-access
+BDOS_FILESIZE           = 35            ; get file size
+BDOS_RECORD             = 36            ; get random-access record
+BDOS_RSTDRV             = 37            ; reset drive
+BDOS_FILLZERO           = 40            ; random-access zero-out
