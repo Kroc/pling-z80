@@ -18,10 +18,12 @@ HI                      = 1
 BOOT                    = $0000
 TBASE                   = $0100         ; start of transient program area
 
-;===============================================================================
+
 .BANK 0 SLOT "TPA"
 .ORGA TBASE
 
+boot:
+;===============================================================================
         ; when a program is loaded in CP/M a small stack is created, enough
         ; to call the BDOS/BIOS. we want to set the stack to the top of
         ; memory although that depends were the TPA ends and the BDOS begins.
@@ -100,10 +102,54 @@ BDOS_FILLZERO           = 40            ; random-access zero-out
         random_record   FARADDR
 .ENDST
 
-.RAMSECTION "CPMCommandFCB"             SLOT "ZP" ORG $5C RETURNORG
-        command_fcb     INSTANCEOF FileControlBlock
+.RAMSECTION "CPMCommandFCB"             SLOT "ZP" ORGA $5C FORCE RETURNORG
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+command_fcb             INSTANCEOF FileControlBlock
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 .ENDS
-.RAMSECTION "CPMCommand"                SLOT "ZP" ORG $80 RETURNORG
-        command_len     BYTE
-        command         DSB 127
+.RAMSECTION "CPMBuffer"                 SLOT "ZP" ORGA $80 FORCE RETURNORG
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+buffer                  DSB 128
+;:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 .ENDS
+
+
+osGetByte:
+;===============================================================================
+; read a byte from an open file:
+;
+; NOTE: this assumes no other file activity or line-input in between reads!
+;-------------------------------------------------------------------------------
+        exx                             ; swap to shadow registers
+        ld      HL',    @index+2        ; index is stored *in* the instruction!
+
+        ; if a sector has not been read, then fetch from disk first.
+        ; CP/M uses 128-byte records and reads 1 record at a time
+        ld      A,      [HL']
+        and     A                       ; (set flags!)
+        jr      nz,     +
+
+        ; read sector:
+        ;-----------------------------------------------------------------------
+        ld      C',     BDOS_READSEQ
+        ld      DE',    command_fcb
+        call    BDOS                    ; (does this alter HL?)
+
+        ; if A is non-zero, the file has ended
+        cp      $01                     ; carry clear for A >= $01
+        ccf                             ; flip carry flag
+        jr      c,      @return         ; return if carry set
+
+        ld      A,              128     ; reset record byte counter
+        ld      [HL'],          A       ; (128 bytes before next disk read)
+
+        ; get byte:
+        ;-----------------------------------------------------------------------
+        ; the sector is read to the "DMA" address, which is $80 by default
+        ;
++       dec     [HL']                   ; pre-decrement index (end *on* zero)
+        ld      IX,     buffer          ; address of disk buffer
+@index  ld      A,      [IX+$00]        ; get byte at current index
+
+@return exx                             ; restore register set
+        ret

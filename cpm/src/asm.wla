@@ -1,0 +1,29 @@
+; ezOS CP/M (c) Kroc Camen 2023, MIT License
+; Pling! assembler
+;
+row:                    .WORD $0000     ; current row in file
+col:                    .BYTE $00       ; current column in file
+
+
+file:
+;===============================================================================
+; assembles a file:
+;-------------------------------------------------------------------------------
+        ; file is assumed already open; finding and verifying
+        ; files exist is up to the frontend to handle first
+        ;
+        ; read a byte:
+        ;-----------------------------------------------------------------------
+        call    osGetByte
+        jp      c,      @end
+
+        ret
+
+        ; end of file
+@end:   ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        call    BDOS
+
+        ret
+
+@str:   .ASC "End of File$"

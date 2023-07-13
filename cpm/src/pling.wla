@@ -1,7 +1,7 @@
 ; ezOS CP/M (c) Kroc Camen 2023, MIT License
-; CP/M Pling! assembler / runner
+; Pling! CP/M frontend
 ;
-.INCLUDE    "cpm.wla"
+.INC    "cpm.wla"
 
 init:
 ;===============================================================================
@@ -10,7 +10,7 @@ init:
         ;
         ; check filename first-letter in the built-in file-control-block
         ld      A,      [command_fcb.filename]
-        cp      ' '                     ; non-visible char? $00-$20?
+        cp      ' '+1                   ; non-visible char? $00-$20?
         jp      c,      help            ; show help msg and quit
 
         ; open file:
@@ -19,8 +19,11 @@ init:
         xor     A                       ; start reading at record 0
         ld      [command_fcb.current_record],   A
         call    BDOS
-        and     A                       ; (set flaggs!)
+        and     A                       ; (set flags!)
         jp      m,      @err            ; $FF = error
+
+        ; assemble the file
+        call    asm.file
 
         ; return to CP/M handler to quit the program
         ret
@@ -42,3 +45,8 @@ help:
 
 @str:   .ASC "Pling! CP/M v0, Kroc Camen 2023\n\n"
         .ASC "    ! SOURCE.P!$"
+
+
+; include the assembler
+;
+.INC    "asm.wla"                       NAMESPACE "asm"
