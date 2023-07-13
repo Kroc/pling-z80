@@ -118,11 +118,13 @@ buffer                  DSB 128
 .ENDS
 
 
-osGetByte:
+osGetChar:
 ;===============================================================================
-; read a byte from an open file:
+; read an ASCII character from an open file:
 ;
 ; NOTE: this assumes no other file activity or line-input in between reads!
+; TODO: index byte will not be reset when changing file!
+;       this routine will need to multi-task FCBs
 ;-------------------------------------------------------------------------------
         exx                             ; swap to shadow registers
         ld      HL',    @index+2        ; index is stored *in* the instruction!
@@ -131,7 +133,7 @@ osGetByte:
         ; CP/M uses 128-byte records and reads 1 record at a time
         ld      A,      [HL']
         and     A                       ; (set flags!)
-        jr      nz,     +
+        jr      nz,     +               ; skip if at least 1-byte read
 
         ; read sector:
         ;-----------------------------------------------------------------------
@@ -141,20 +143,29 @@ osGetByte:
 
         ; if A is non-zero, the file has ended
         cp      $01                     ; carry clear for A >= $01
-        ccf                             ; flip carry flag
-        ld      A,      0               ; return 0 for end-of-file
-        jr      c,      @return         ; return if carry set
+        jr      nc,     @eof            ; return for A > 0
 
-        ld      A,              128     ; reset record byte counter
-        ld      [HL'],          A       ; (128 bytes before next disk read)
+        ld      HL',    @index+2
+        ld      [HL'],  A               ; reset record byte counter
+
+        ; fallthrough
+        ; ...
 
         ; get byte:
         ;-----------------------------------------------------------------------
         ; the sector is read to the "DMA" address, which is $80 by default
         ;
-+       dec     [HL']                   ; pre-decrement index (end *on* zero)
-        ld      IX,     buffer          ; address of disk buffer
++       ld      IX,     buffer          ; address of disk buffer
 @index  ld      A,      [IX+$00]        ; get byte at current index
+        inc     [HL']                   ; increment index
 
-@return exx                             ; restore register set
+        ; in CP/M the SUB control code ($1A) terminates the file
+        ; because all CP/M2 files are padded to 128 bytes sectors
+        ; <https://en.wikipedia.org/wiki/Substitute_character>
+        ;
+        cp      $1a                     ; check for padding byte
+        jr      nz,     +               ; normal byte? skip over
+@eof:   xor     A                       ; return null for end-of-file
+
++       exx                             ; restore register set
         ret

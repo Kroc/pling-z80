@@ -19,7 +19,7 @@ file:
         ;
         ; read a byte:
         ;-----------------------------------------------------------------------
-        call    _getChar
+@read:  call    _getChar
         and     A                       ; (set flags!)
         jp      z,      _eof
 
@@ -29,6 +29,8 @@ file:
         ld      E,      A
         call    BDOS
 
+        jr      @read
+
         ret
 
 
@@ -36,7 +38,7 @@ _getChar:
 ;===============================================================================
 ; reads the next character in the file. current row and column are maintained
 ;-------------------------------------------------------------------------------
-        call    osGetByte
+        call    osGetChar
 
         ; if end-of-file, return the null byte;
         ; the caller will fold
@@ -78,4 +80,4 @@ _eof:   ld      C,      BDOS_PRNSTR
 
         ret
 
-@str:   .ASC "End of File$"
+@str:   .ASC "\nEnd of File$"

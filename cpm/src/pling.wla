@@ -23,7 +23,9 @@ init:
         jp      m,      @err            ; $FF = error
 
         ; assemble the file
+        ;-----------------------------------------------------------------------
         call    asm.file
+        ;-----------------------------------------------------------------------
 
         ; return to CP/M handler to quit the program
         ret
