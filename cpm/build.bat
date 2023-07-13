@@ -14,19 +14,19 @@ SET "CPM_DIR=%BIN_DIR%\RunCPM"
 SET RUN_CPM="%CPM_DIR%\RunCPM.exe"
 
 %WLA_Z80% -v ^
-    -o "build\ezos.o" ^
-       "boot.wla"
+    -o "build\pling.o" ^
+       "pling.wla"
 
 IF ERRORLEVEL 1 EXIT /B 1
 
 %WLA_LINK% -v -b ^
     "link_cpm.ini" ^
-    "build\ez80.com"
+    "build\!.com"
 
 IF ERRORLEVEL 1 EXIT /B 1
 
 REM # copy the COM file into the CP/M disk directory
 REM # "/N" forces an 8.3 filename in the destination
-COPY /N /Y "build\ez80.com" /B "%CPM_DIR%\A\0" /B
+COPY /N /Y "build\!.com" /B "%CPM_DIR%\A\0" /B
 
 START "RunCPM" /D "%CPM_DIR%" %RUN_CPM%

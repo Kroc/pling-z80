@@ -1,0 +1,44 @@
+; ezOS CP/M (c) Kroc Camen 2023, MIT License
+; CP/M Pling! assembler / runner
+;
+.INCLUDE    "cpm.wla"
+
+init:
+;===============================================================================
+        ; check for an automatic file-reference,
+        ; i.e. a file parameter was passed on the command line
+        ;
+        ; check filename first-letter in the built-in file-control-block
+        ld      A,      [command_fcb.filename]
+        cp      ' '                     ; non-visible char? $00-$20?
+        jp      c,      help            ; show help msg and quit
+
+        ; open file:
+        ld      C,      BDOS_OPEN
+        ld      DE,     command_fcb     ; use default FileControlBlock
+        xor     A                       ; start reading at record 0
+        ld      [command_fcb.current_record],   A
+        call    BDOS
+        and     A                       ; (set flaggs!)
+        jp      m,      @err            ; $FF = error
+
+        ; return to CP/M handler to quit the program
+        ret
+
+@err:   ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        jp      BDOS
+
+@str:   .ASC "File Not Found!$"
+
+
+help:
+;===============================================================================
+; print the help string:
+;-------------------------------------------------------------------------------
+        ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        jp      BDOS
+
+@str:   .ASC "Pling! CP/M v0, Kroc Camen 2023\n\n"
+        .ASC "    ! SOURCE.P!$"

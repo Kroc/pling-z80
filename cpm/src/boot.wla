@@ -1,3 +1,0 @@
-; ezOS CP/M (c) Kroc Camen 2023, MIT License
-;
-.INCLUDE    "cpm.wla"

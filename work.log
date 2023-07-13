@@ -9,3 +9,7 @@ Didn't sleep; wrote the greatest language design I've ever done.
 2023-07-11:
 
 Added minimal CP/M build/bootstrap. Moved Agon build to "agon" folder and added "cpm" folder. RunCPM is used as the 'emulator'.
+
+2023-07-12:
+
+Check for parameter and display help if not present.
