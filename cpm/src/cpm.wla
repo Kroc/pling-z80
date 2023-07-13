@@ -38,9 +38,13 @@ boot:
         ; run the program
         call    init
 
-        ; since we've overwritten the CCP,
-        ; we need to restart CP/M when exiting
-        jp      BOOT
+        ; since we've overwritten the CCP, we need to restart CP/M fully.
+        ; CP/M documentation says we can jump to 0, but this is possibly
+        ; buggy in RunCPM, where non-zero values of E cause the disk to
+        ; not be found upon warm boot
+        ; 
+        ld      C,      BDOS_RESET
+        jp      BDOS
 
 
 
@@ -138,6 +142,7 @@ osGetByte:
         ; if A is non-zero, the file has ended
         cp      $01                     ; carry clear for A >= $01
         ccf                             ; flip carry flag
+        ld      A,      0               ; return 0 for end-of-file
         jr      c,      @return         ; return if carry set
 
         ld      A,              128     ; reset record byte counter

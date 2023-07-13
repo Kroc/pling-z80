@@ -14,10 +14,10 @@ init:
         jp      c,      help            ; show help msg and quit
 
         ; open file:
-        ld      C,      BDOS_OPEN
-        ld      DE,     command_fcb     ; use default FileControlBlock
         xor     A                       ; start reading at record 0
         ld      [command_fcb.current_record],   A
+        ld      C,      BDOS_OPEN
+        ld      DE,     command_fcb     ; use default FileControlBlock
         call    BDOS
         and     A                       ; (set flags!)
         jp      m,      @err            ; $FF = error
@@ -50,3 +50,14 @@ help:
 ; include the assembler
 ;
 .INC    "asm.wla"                       NAMESPACE "asm"
+
+; * * *   H E A P   * * *
+;===============================================================================
+; at the end of the assembled binary, additional code/data at runtime
+; will be piled on the end!
+;
+heap_addr:
+;-------------------------------------------------------------------------------
+        .WORD   heap                    ; pointer to current position in heap
+
+heap:   ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN

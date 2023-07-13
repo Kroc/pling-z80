@@ -1,8 +1,13 @@
 ; ezOS CP/M (c) Kroc Camen 2023, MIT License
 ; Pling! assembler
 ;
+; TODO: this needs to be recursive because if a Pling! file imports another
+;       that isn't assembled yet, it needs to assemble that one too
+;
 row:                    .WORD $0000     ; current row in file
 col:                    .BYTE $00       ; current column in file
+
+char:                   .BYTE $00       ; current character
 
 
 file:
@@ -14,13 +19,60 @@ file:
         ;
         ; read a byte:
         ;-----------------------------------------------------------------------
-        call    osGetByte
-        jp      c,      @end
+        call    _getChar
+        and     A                       ; (set flags!)
+        jp      z,      _eof
+
+        ; parse root:
+        ;-----------------------------------------------------------------------
+        ld      C,      BDOS_CONOUT
+        ld      E,      A
+        call    BDOS
 
         ret
 
+
+_getChar:
+;===============================================================================
+; reads the next character in the file. current row and column are maintained
+;-------------------------------------------------------------------------------
+        call    osGetByte
+
+        ; if end-of-file, return the null byte;
+        ; the caller will fold
+        and     A                       ; (set flags)
+        ret     z                       ; return on null byte
+
+        ; check for end of line:
+        ;-----------------------------------------------------------------------
+        cp      $0d                     ; /r is always ignored
+        jr      z,      __label__       ; don't advance row/col, get next char
+        cp      $0a                     ; /n is newline,
+        call    z,      @row            ;  increment row, reset col
+
+        ; increment column number:
+        ; (capped at 255 even though lines can be longer)
+        ld      HL,     col
+        inc     [HL]
+        jr      nz,     +               ; if roll over, roll back (less
+        dec     [HL]                    ;  instructions than read,add,write)
+
++       ret
+
+        ; increment row number:
+        ;-----------------------------------------------------------------------
+@row:   ld      HL,     [row]           ; 16-bit load,
+        inc     HL                      ;  and increment,
+        ld      [row],  HL              ;  and write
+        ; reset column number
++       ld      HL,     col
+        ld      [HL],   0
+        ; upon return, column number will be increased
+        ret
+
+
         ; end of file
-@end:   ld      C,      BDOS_PRNSTR
+_eof:   ld      C,      BDOS_PRNSTR
         ld      DE,     @str
         call    BDOS
 
