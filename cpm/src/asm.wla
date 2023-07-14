@@ -47,9 +47,9 @@ _getChar:
 
         ; check for end of line:
         ;-----------------------------------------------------------------------
-        cp      $0d                     ; /r is always ignored
+        cp      ASCII_CR                ; /r is always ignored
         jr      z,      __label__       ; don't advance row/col, get next char
-        cp      $0a                     ; /n is newline,
+        cp      ASCII_LF                ; /n is newline,
         call    z,      @row            ;  increment row, reset col
 
         ; increment column number:

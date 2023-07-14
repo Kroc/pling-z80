@@ -37,6 +37,24 @@ init:
 @str:   .ASC "File Not Found!$"
 
 
+; include the assembler
+;
+.INC    "asm.wla"                       NAMESPACE "asm"
+
+
+; * * *   H E A P   * * *
+;===============================================================================
+; at the end of the assembled binary, additional code / data
+; loaded / generated at runtime will be piled on the end!
+;
+heap_addr:
+;-------------------------------------------------------------------------------
+        .WORD   heap                    ; pointer to current position in heap
+
+heap:   ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
+
+;///////////////////////////////////////////////////////////////////////////////
+
 help:
 ;===============================================================================
 ; print the help string:
@@ -47,19 +65,3 @@ help:
 
 @str:   .ASC "Pling! CP/M v0, Kroc Camen 2023\n\n"
         .ASC "    ! SOURCE.P!$"
-
-
-; include the assembler
-;
-.INC    "asm.wla"                       NAMESPACE "asm"
-
-; * * *   H E A P   * * *
-;===============================================================================
-; at the end of the assembled binary, additional code/data at runtime
-; will be piled on the end!
-;
-heap_addr:
-;-------------------------------------------------------------------------------
-        .WORD   heap                    ; pointer to current position in heap
-
-heap:   ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN

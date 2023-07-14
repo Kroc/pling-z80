@@ -1,6 +1,8 @@
 ; ezOS CP/M (c) Kroc Camen 2023, MIT License
-; CP/M interface
+; CP/M-2.2 interface
 ;
+; memory layout:
+;-------------------------------------------------------------------------------
 .MEMORYMAP
     DEFAULTSLOT 1
     ; RUNCPM 60K, BDOS @ $FD00, BIOS @ $FE00
@@ -11,32 +13,55 @@
 .ROMBANKSIZE $FD00-$0100
 .ROMBANKS 1
 
+; system constants:
+;-------------------------------------------------------------------------------
 NULL                    = 0
 LO                      = 0
 HI                      = 1
 
+ASCII_CR                = $0d           ; ASCII carriage-return
+ASCII_LF                = $0a           ; ASCII line-feed
+ASCII_SUB               = $1a           ; ASCII "substitute", end-of-file char
+
+CPM_VER                 = $22           ; CP/M version as BCD
+CPM_VER_STR             = "2.2"         ; CP/M version as string
+
 BOOT                    = $0000
 TBASE                   = $0100         ; start of transient program area
 
+
+; bootstrap:
+;===============================================================================
 
 .BANK 0 SLOT "TPA"
 .ORGA TBASE
 
 boot:
 ;===============================================================================
+        ; check CP/M version -- it's not likely we're going to be running
+        ; on CP/M-1 but this same check will be required for a CP/M-3 version
+        ;
+        ld      C,      BDOS_VER
+        call    BDOS
+        ld      A,      L               ; compare returned version
+        cp      CPM_VER                 ;  with required CP/M version
+        jr      c,      @err            ; ver < CPM_VER, quit with error
+
         ; when a program is loaded in CP/M a small stack is created, enough
         ; to call the BDOS/BIOS. we want to set the stack to the top of
-        ; memory although that depends were the TPA ends and the BDOS begins.
+        ; memory although that depends were the TPA ends and the BDOS begins
         ;
         ; the address at $06/07 points to the beginning of BDOS,
         ; so if we set the stack there the first push will go to BDOS-1.
         ; on RunCPM this is $FCFF
         ;
-        ld      HL,     [BDOS+1+HI]
+@ok:    ld      HL,     [BDOS+1]        ; get BDOS address from `jp $xxxx`
         ld      SP,     HL
 
         ; run the program
+        ;-----------------------------------------------------------------------
         call    init
+        ;-----------------------------------------------------------------------
 
         ; since we've overwritten the CCP, we need to restart CP/M fully.
         ; CP/M documentation says we can jump to 0, but this is possibly
@@ -46,6 +71,15 @@ boot:
         ld      C,      BDOS_RESET
         jp      BDOS
 
+        ; exit with a version error
+        ;-----------------------------------------------------------------------
+@err:   ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        call    BDOS
+        ld      C,      BDOS_RESET
+        jp      BDOS
+
+@str:   .ASC "Error: CP/M ", CPM_VER_STR, " or higher required!$"
 
 
 ; BDOS calls:
@@ -163,7 +197,7 @@ osGetChar:
         ; because all CP/M2 files are padded to 128 bytes sectors
         ; <https://en.wikipedia.org/wiki/Substitute_character>
         ;
-        cp      $1a                     ; check for padding byte
+        cp      ASCII_SUB               ; check for padding byte
         jr      nz,     +               ; normal byte? skip over
 @eof:   xor     A                       ; return null for end-of-file
 
