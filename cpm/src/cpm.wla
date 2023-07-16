@@ -19,6 +19,8 @@ NULL                    = 0
 LO                      = 0
 HI                      = 1
 
+ASCII_SPC               = $20           ; ASCII space (whitespace)
+ASCII_TAB               = $09           ; ASCII tab (whitespace)
 ASCII_CR                = $0d           ; ASCII carriage-return
 ASCII_LF                = $0a           ; ASCII line-feed
 ASCII_SUB               = $1a           ; ASCII "substitute", end-of-file char
@@ -156,18 +158,22 @@ osGetChar:
 ;===============================================================================
 ; read an ASCII character from an open file:
 ;
+; out:  A                               character, 0 for end-of-file
+;       BC|DE|HL|IX/Y                   (preserved)
+;
 ; NOTE: this assumes no other file activity or line-input in between reads!
 ; TODO: index byte will not be reset when changing file!
 ;       this routine will need to multi-task FCBs
 ;-------------------------------------------------------------------------------
         exx                             ; swap to shadow registers
-        ld      HL',    @index+2        ; index is stored *in* the instruction!
+        ld      HL',    @index+1        ; index is stored *in* the instruction!
 
         ; if a sector has not been read, then fetch from disk first.
         ; CP/M uses 128-byte records and reads 1 record at a time
-        ld      A,      [HL']
+        ;
+        ld      A,      [HL']           ; current index, 0 if uninitialised
         and     A                       ; (set flags!)
-        jr      nz,     +               ; skip if at least 1-byte read
+        jr      nz,     @index          ; skip if at least 1-byte read
 
         ; read sector:
         ;-----------------------------------------------------------------------
@@ -176,25 +182,28 @@ osGetChar:
         call    BDOS                    ; (does this alter HL?)
 
         ; if A is non-zero, the file has ended
-        cp      $01                     ; carry clear for A >= $01
+        cp      A,      $01             ; carry clear for A >= $01
         jr      nc,     @eof            ; return for A > 0
 
-        ld      HL',    @index+2
-        ld      [HL'],  A               ; reset record byte counter
+        ; reset record byte counter
+        ld      HL',    @index+1        ; re-get index
+        ld      A,      <buffer         ; buffer is from $80 to $FF
+        ld      [HL'],  A               ; set address *in* instruction below
 
         ; fallthrough
         ; ...
 
         ; get byte:
         ;-----------------------------------------------------------------------
-        ; the sector is read to the "DMA" address, which is $80 by default
+        ; the sector is read to the "DMA" address, which is $80 by default.
+        ; the address "$0000" is assembled into the instruction and the code
+        ; will replace the low-byte with $80 after a sector read
         ;
-+       ld      IX,     buffer          ; address of disk buffer
-@index  ld      A,      [IX+$00]        ; get byte at current index
-        inc     [HL']                   ; increment index
+@index  ld      A,      [$0000]         ; get byte at current index
+        inc     [HL']                   ; increment index (address above!)
 
         ; in CP/M the SUB control code ($1A) terminates the file
-        ; because all CP/M2 files are padded to 128 bytes sectors
+        ; because all CP/M2 files are padd! tested to 128 bytes sectors
         ; <https://en.wikipedia.org/wiki/Substitute_character>
         ;
         cp      ASCII_SUB               ; check for padding byte
