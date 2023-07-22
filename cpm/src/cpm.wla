@@ -159,7 +159,7 @@ osGetChar:
 ; read an ASCII character from an open file:
 ;
 ; out:  A                               character, 0 for end-of-file
-;       BC|DE|HL|IX/Y                   (preserved)
+;       BC, DE, HL, IX/Y                (preserved)
 ;
 ; NOTE: this assumes no other file activity or line-input in between reads!
 ; TODO: index byte will not be reset when changing file!
@@ -202,8 +202,8 @@ osGetChar:
 @index  ld      A,      [$0000]         ; get byte at current index
         inc     [HL']                   ; increment index (address above!)
 
-        ; in CP/M the SUB control code ($1A) terminates the file
-        ; because all CP/M2 files are padd! tested to 128 bytes sectors
+        ; in CP/M the ASCII SUB control code ($1A) terminates the file
+        ; because all CP/M2 files are padded to 128 bytes sectors!
         ; <https://en.wikipedia.org/wiki/Substitute_character>
         ;
         cp      ASCII_SUB               ; check for padding byte
@@ -211,4 +211,22 @@ osGetChar:
 @eof:   xor     A                       ; return null for end-of-file
 
 +       exx                             ; restore register set
+        ret
+
+
+osPrintChar:
+;===============================================================================
+; prints a single ASCII character:
+;
+; in:   A                               input character
+; out:  BC, DE, HL, IX/Y                (preserved)
+;       A                               (clobbered)
+;-------------------------------------------------------------------------------
+        exx                             ; swap to shadow registers
+
+        ld      C',     BDOS_CONOUT
+        ld      E',     A
+        call    BDOS
+
+        exx                             ; restore register set
         ret

@@ -24,7 +24,18 @@
     "[log]": {
         "editor.wordWrap":"bounded"
     },
+    "files.exclude": {
+        "**/__*" : true
+    },
     "files.associations": {
         "*.asm"  : "ez80-asm"
-    }
+    },
+    "files.readonlyInclude": {
+        "cpm/bin/wla-dx/*" : true,
+        "cpm/bin/RunCPM/*.exe" : true
+    },
+    "cSpell.words": [
+        "concatenative",
+        "pling"
+    ]
 }

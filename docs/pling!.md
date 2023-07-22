@@ -3,9 +3,9 @@
 A nice looking functional, concatenative programming language for minimal systems.  
 By Kroc Camen.
 
-- Simple left-to-right push-down parser. No look-ahead!  
-  Intended for assembling & execution on very constrained systems
-- Easy to tokenise: anything separated by spaces is a "function"
+- Simple left-to-right, context-free parser. No look-ahead!
+- Can be parsed as a byte-at-a-time stream without backtracking
+- Intended for assembling & execution on very constrained systems
 
 ## Comments:
 

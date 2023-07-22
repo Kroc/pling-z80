@@ -1,13 +1,39 @@
 ; ezOS CP/M (c) Kroc Camen 2023, MIT License
 ; Pling! assembler
 ;
+; tokens:
+;-------------------------------------------------------------------------------
 ; TODO: this needs to be recursive because if a Pling! file imports another
 ;       that isn't assembled yet, it needs to assemble that one too
 ;
-row:                    .WORD $0000     ; current row in file
-col:                    .BYTE $00       ; current column in file
-
+row:                    .WORD $0000     ; current line-number in file
+col:                    .BYTE $00       ; current column-number in file
 char:                   .BYTE $00       ; current character
+
+token_row:              .WORD $0000     ; line-number at start of token
+token_col:              .BYTE $00       ; column-number at start of token
+token_char:             .BYTE $00       ; first character of token
+
+.ENUMID 0
+.ENUMID TOKEN_EOF                       ; end-of-file / no-token
+.ENUMID TOKEN_NUMBER                    ; a number literal (any kind)
+.ENUMID TOKEN_STRING                    ; a string literal
+.ENUMID TOKEN_KEYWORD                   ; an assembler keyword, e.g. "fn"
+.ENUMID TOKEN_FUNCTION                  ; a function name
+
+; values:
+;-------------------------------------------------------------------------------
+.ENUMID 1
+.ENUMID VALUE_STRING                    ; string literal
+.ENUMID VALUE_INTEGER                   ; integer literal
+
+.STRUCT Value
+        type            BYTE            ; value type, `VALUE_*` const
+        data_ptr        WORD            ; data-pointer
+        next_ptr        WORD            ; next-pointer (next value in list)
+        row             WORD            ; line-number
+        col             BYTE            ; column-number
+.ENDST
 
 
 file:
@@ -17,28 +43,246 @@ file:
         ; file is assumed already open; finding and verifying
         ; files exist is up to the frontend to handle first
         ;
-        ; read a byte:
+
+_assembleRoot:
+;===============================================================================
+; assemble source code starting at the root scope.
+; certain keywords are only allowed from the root scope, e.g. imports
+;-------------------------------------------------------------------------------
+        call    _getToken
+
+;;        ld      HL,     [heap_addr]
+;;        inc     HL
+;;        ld      B,      C
+;;        ld      C,      0
+;;-       ld      A,      [HL]
+;;        call    osPrintChar
+;;        inc     HL
+;;        djnz    -
+
+        ret
+
+
+_getToken:
+;===============================================================================
+; reads the next token in the file and does some basic type identification:
+;
+; note that this routine only checks the first couple of characters
+; and doesn't do any token conversion into literals
+;
+; out:  A                               token type as TOKEN_* constant
+;                                       0 (TOKEN_EOF) for end-of-file
+;       BC                              token-string length
+;-------------------------------------------------------------------------------
+        ; read a token on to the heap:
         ;-----------------------------------------------------------------------
-@read:  call    _getChar
+        ; read bytes from the file and split by whitespace
+        ; (or by quote-marks for strings)
+        ;
+        ; HL is the address of the top of the heap; this won't be advanced
+        ; and the heap pointer won't be updated. BC returns the length of
+        ; the token-string *excluding* the reserved byte. DE returns the
+        ; hypothetical new top-of-heap and [DE] contains the terminator
+        ;
+        ld      HL,     [heap_addr]     ; get the current top of the heap
+@next:  call    _readToken              ; read bytes on to heap @ HL
+
+        ; temp: print token
+        push    BC
+        push    HL
+        inc     HL
+        ld      B,      C
+        ld      C,      0
+-       ld      A,      [HL]
+        call    osPrintChar
+        inc     HL
+        djnz    -
+        ld      A,      ASCII_LF
+        call    osPrintChar
+        pop     HL
+        pop     BC
+
+        ; identify token type:
+        ;-----------------------------------------------------------------------
+        ; TODO: negative symbol for numbers
+        ;
+        ld      A,      [token_char]    ; what is the first char of the token?
+        cp      '"'                     ; a string?
+        jr      z,      @str
+        cp      '$'                     ; hexadecimal literal?
+        jr      z,      @num
+        cp      '%'                     ; binary literal?
+        jr      z,      @num
+        cp      '0'                     ; >= "0"?
+        jr      c,      +               ; (if not, not a number literal)
+        cp      '9'+1                   ; but also <= "9"?
+        jr      c,      @num            ; -- is number literal
++       cp      '#'                     ; maybe a comment?
+        jr      nz,     @word           ; (if not, maybe a word?)
+
+        ; a comment requires the hashmark '#' to be standalone;
+        ; a hash-prefixed word is still a valid token name,
+        ; therefore check the length of the token:
+        ;
+        ex      AF,     AF'             ; (preserve first character)
+        dec     BC                      ; 16-bit DEC doesn't set zero-flag!
+        ld      A,      C               ; OR together B & C to look
+        or      B                       ;  for a zero bit pattern
+        jr      z,      @com            ; is a comment! skip over it
+
+        ; token-string begins with "#" but is not a comment,
+        ; drop through to the keyword/function recogition
+        ;
+        ex      AF',    AF              ; (return A to the first character)
+
+        ; keyword or function:
+        ;-----------------------------------------------------------------------
+@word:  ld      A,      TOKEN_FUNCTION
+        ret
+
+        ; comment:
+        ;-----------------------------------------------------------------------
+        ; check the terminator; if a line ends with a hashmark '#' then that
+        ; also signals the end of the comment and we don't want to 'skip until
+        ; end-of-line' as that would consume the *next* line!
+        ;
+@com:   ld      A,      [DE]            ; get terminating character
         and     A                       ; (set flags!)
-        jp      z,      _eof
+        ret     z                       ; if EOF, also return with TOKEN_EOF
+        cp      ASCII_LF                ; "#\n"?
+        jr      z,      @next           ; yes, jump back to top of routine!
 
-        ; parse root:
+        ; is comment. keep reading bytes until end-of-line/file
+        ;
+@skip:  call    _getChar                ; read a character
+        and     A                       ; (set flags!)
+        ret     z                       ; if EOF, also return with TOKEN_EOF
+        cp      ASCII_LF                ; reached end-of-line yet?
+        jr      nz,     @skip           ; no? keep reading chars
+
+        jp      @next
+
+        ; other token types:
         ;-----------------------------------------------------------------------
-        ld      C,      BDOS_CONOUT
-        ld      E,      A
-        call    BDOS
+@str:   ld      A,      TOKEN_STRING
+        ret
+@num:   ld      A,      TOKEN_NUMBER
+        ret
 
-        jr      @read
 
+_readToken:
+;===============================================================================
+; reads the next token from the file:
+;
+; this routine does not convert tokens into literals,
+; only identifies the boundaries of the token-string
+;
+; the token is pushed to the heap as a string, with one byte reserved at the
+; start. the terminator is included at the end, where DE is situated but not
+; part of the length in BC, for identifiying whitespace vs end-of-line /
+; end-of-file termination
+;
+;    ----+----------------------------------------------------------+---+
+;    ... | reserved ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ W ¦ o ¦ r ¦ l ¦ d | " |
+;    ----+------------^---------------------------------------------+---+
+;        |< HL      | A                 < BC >                      |< DE
+;
+; in:   HL                              starting addr in heap
+;
+; out:  A                               first-character of token-string
+;       BC                              length of token, 0 = end of file!
+;       DE                              next unused heap address, containing
+;                                       the terminating character, i.e.
+;                                       whitespace, end-of-line or end-of-file
+;       HL                              (preserved)
+;       IX/Y                            (untouched)
+;-------------------------------------------------------------------------------
+        ld      BC,     0               ; set starting length of token
+
+        ; skip leading whitespace:
+        ;-----------------------------------------------------------------------
+@skip:  call    _getChar                ; read a character
+        and     A                       ; (set flags!)
+        ret     z                       ; return BC=0 for no word, end-of-file
+        cp      ASCII_SPC+1             ; ignore any ASCII code <= $20 (spc)
+        jr      c,      @skip           ; keep reading blank chars
+
+        ; for error-messages, the row/column of the first character
+        ; needs to be recorded for when the value-struct is created
+        ;
+        ld      DE,             [row]
+        ld      [token_row],    DE
+        ld      DE,             [col]   ; + `char`
+        ld      [token_col],    DE      ; + `token_char`
+
+        ; at least one valid character exists,
+        ; begin a token-name string on the heap
+        ;
+        ld      D,      H               ; DE will be the moving
+        ld      E,      L               ;  pointer in the heap
+        inc     DE                      ; (skip over reserved byte)
+        ld      [DE],   A               ; add the first character to the heap
+
+        ; is it a string literal?
+        ;
+        ; strings are the only instance where a token does not stop
+        ; at the next whitespace (comments are not handled here!)
+        ;
+        cp      $22                     ; start of string?
+        jr      z,      @str            ; (strings are parsed differently)
+
+        ; read token characters:
+        ;-----------------------------------------------------------------------
+@char:  ex      AF,     AF'             ; preserve first character
+        ;-----------------------------------------------------------------------
+-       inc     BC                      ; increment character count
+
+        ; keep reading characters until the next whitespace or end-of-file:
+        ; note that this has the side-effect of returning the terminating
+        ; character in A, i.e. space, end-of-line or end-of-file!
+        ;
+        call    _getChar                ; read a character
+
+        ; (note that the pre-increment of DE before writing will automatically
+        ;  create the reserved byte at the start of the token-string)
+        ;
+        inc     DE                      ; move the data-pointer forward
+        ld      [DE],   A'              ; add the character to the heap
+        
+        cp      ASCII_SPC+1             ; check for ASCII code > $20 (spc)
+        jr      nc,     -               ; keep adding non-whitespace chars
+        ;-----------------------------------------------------------------------
+        ex      AF',    AF              ; return first character
+        ret
+
+        ; read a string literal token:
+        ;-----------------------------------------------------------------------
+        ; TODO: escape codes to be able to include " in strings
+        ;
+@str:   ex      AF,     AF'             ; preserve first character
+        ;-----------------------------------------------------------------------
+-       inc     BC                      ; increment character count
+        call    _getChar                ; read a character
+        inc     DE                      ; move the data-pointer forward
+        ld      [DE],   A'              ; add the character to the heap
+        cp      $22+1                   ; check for speech mark
+        jr      nz,     -               ; keep adding string characters
+        ;-----------------------------------------------------------------------
+        ex      AF',    AF              ; return first character
         ret
 
 
 _getChar:
 ;===============================================================================
-; reads the next character in the file. current row and column are maintained
+; reads the next character in the file.
+; current row and column are maintained
+;
+; out:  A                               ASCII code, 0 for end-of-file
+;       DE, HL                          (preserved)
+;       BC, IX/Y                        (untouched)
 ;-------------------------------------------------------------------------------
-        call    osGetChar
+        call    osGetChar               ; read a char from file
+        ld      [char], A               ; retain returned character
 
         ; if end-of-file, return the null byte;
         ; the caller will fold
@@ -47,37 +291,156 @@ _getChar:
 
         ; check for end of line:
         ;-----------------------------------------------------------------------
-        cp      ASCII_CR                ; /r is always ignored
-        jr      z,      __label__       ; don't advance row/col, get next char
-        cp      ASCII_LF                ; /n is newline,
-        call    z,      @row            ;  increment row, reset col
+        cp      ASCII_CR                ; /r is always ignored,
+        jr      z,      __label__       ;  don't advance row/col, get next char
+
+        exx                             ; must preserve HL & DE
+        ld      HL',    col             ; prepare to increment column number
+
+        cp      ASCII_LF                ; /n is newline
+        jr      nz,     @col            ; if not, skip to next column
+
+        ; increment line-number:
+        ;-----------------------------------------------------------------------
+        ld      DE',    [row]           ; 16-bit load,
+        inc     DE'                     ;  and increment,
+        ld      [row],  DE'             ;  and write
+        ld      [HL'],  0               ; reset column number
 
         ; increment column number:
-        ; (capped at 255 even though lines can be longer)
-        ld      HL,     col
-        inc     [HL]
-        jr      nz,     +               ; if roll over, roll back (less
-        dec     [HL]                    ;  instructions than read,add,write)
-
-+       ret
-
-        ; increment row number:
         ;-----------------------------------------------------------------------
-@row:   ld      HL,     [row]           ; 16-bit load,
-        inc     HL                      ;  and increment,
-        ld      [row],  HL              ;  and write
-        ; reset column number
-+       ld      HL,     col
-        ld      [HL],   0
-        ; upon return, column number will be increased
+        ; (capped at 255 even though lines can be longer)
+@col:   inc     [HL']
+        jr      nz,     +               ; if roll over, roll back (less
+        dec     [HL']                   ;  instructions than read+add+write)
+
++       exx                             ; restore HL/DE
         ret
 
 
-        ; end of file
-_eof:   ld      C,      BDOS_PRNSTR
+_eof:
+;===============================================================================
+        ld      C,      BDOS_PRNSTR
         ld      DE,     @str
         call    BDOS
 
         ret
 
 @str:   .ASC "\nEnd of File$"
+
+
+_parseToken:
+;===============================================================================
+; read a token from the source code and convert into a literal:
+;
+; out:  IX                              address of the value-struct on the heap
+;-------------------------------------------------------------------------------
+
+
+        ; comment?
+        ;-----------------------------------------------------------------------
+        ; the comment mark requires separation so that `#symbol` can be
+        ; a valid value name, therefore check for a single '#' by length
+        ;
+        dec     BC                      ; if BC=1, make it zero?
+
+        ; statement?
+        ;-----------------------------------------------------------------------
+
+        
+@hash:  
+
+@num:   
+
+@word:  
+
+        inc     HL
+
+        ld      B,      C
+        ld      C,      0
+-       ld      A,      [HL]
+        call    osPrintChar
+        inc     HL
+        djnz    -
+
+        ret
+
+        ; convert a token-string to an integer-literal
+        ;-----------------------------------------------------------------------
+@int:   ret
+
+        ; convert a token-string to a string-literal
+        ;-----------------------------------------------------------------------
+        ; write the string length to the first two bytes of the token-string;
+        ; these are the reserved byte and the first speech-mark
+        ;
+@str:   inc     BC                      ; token length excludes reserved-byte!
+        ld      [HL],   C               ; lo-byte string length
+        inc     HL
+        ld      [HL],   B               ; hi-byte string length
+        dec     HL                      ; have to rewind HL to start of token
+
+        ; define a string value as the next thing on the heap,
+        ; pointing back to the fixed token-string
+        ld      A,      VALUE_STRING
+        jp      _pushValue
+
+
+_pushValueNext:
+;===============================================================================
+; adds a Value to the heap that points to the next position in the heap:
+; (this is used for Lambdas and other nested values)
+;
+;    ----+----------------------------------------+
+;    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+;    ----+------------+---------------------------+
+;                     |                           ^
+;                     '---------------------------'
+;-------------------------------------------------------------------------------
+        ; copy the temporary top of the heap to the data-pointer,
+        ; and then add the length of a value-struct
+        ;
+        ld      H,      D
+        ld      L,      E
+        ld      BC,     _sizeof_Value
+        add     HL,     BC
+
+        ; fallthrough
+        ; ...
+
+_pushValue:
+;===============================================================================
+; adds a Value to the heap:
+;
+; a value-structure is added to the top of the heap and partially populated
+;
+;    ----+----------------------------------------+
+;    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+;    ----+----------------------------------------+
+;
+; in:   DE                              heap address to write value-struct
+;       A                               value-type
+;       HL                              data-pointer
+;-------------------------------------------------------------------------------
+        ; IX is now the address for the value-struct to come;
+        ; we use IX because the struct has multiple fields
+        ld      IXH,    D
+        ld      IXL,    E
+        ; populate the value-type
+        ; (for the first byte, DE == IX+$00)
+        ld      [DE],   A
+        ; populate the data-pointer
+        ld      [IX+Value.data_ptr+LO], L
+        ld      [IX+Value.data_ptr+HI], H
+        ; populate row (line-number) and column from the last read token
+        ld      DE,     [token_row]
+        ld      [IX+Value.row+LO],      E
+        ld      [IX+Value.row+HI],      D
+        ld      A,      [token_col]
+        ld      [IX+Value.col],         A
+        ; zero the next-pointer
+        xor     A
+        ld      [IX+Value.next_ptr+LO], A
+        ld      [IX+Value.next_ptr+HI], A
+
+        ret

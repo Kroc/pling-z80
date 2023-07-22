@@ -49,9 +49,9 @@ init:
 ;
 heap_addr:
 ;-------------------------------------------------------------------------------
-        .WORD   heap                    ; pointer to current position in heap
+        .WORD   __heap                  ; pointer to current position in heap
 
-heap:   ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
+__heap: ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
 
 ;///////////////////////////////////////////////////////////////////////////////
 

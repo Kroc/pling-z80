@@ -1,1 +1,11 @@
 # a test pling! script
+
+fn add "
+    adds two numbers
+" :
+    get first
+    get second
+    var third ( first + second )
+    
+    third
+;

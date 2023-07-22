@@ -21,11 +21,7 @@ these are the Value Types provided by _Pling!_:
 - A list `[` ... `]`
 - A struct `{` ... `}` (TODO)
 
-_Pling!_ source code is designed to be assembled into a compact, binary form with a single-pass[^1], forward-only assembler without look-ahead[^2].
-
-[^1]: There will be a need to "fix up" forward-references after the first pass, but the language is designed so that these can be logged during the first-pass and patched immediately without having to walk the entire binary form which is often considered a second pass.
-
-[^2]: Infix operators may look like they require look-ahead but, due to the closing-parenthesis, can be read blind. Either an operator is found or the end of an expression which ends expression parsing. This is why the parentheses are required.
+_Pling!_ source code is designed to be assembled into a compact, binary form with a single-pass, forward-only assembler without look-ahead.
 
 It should be possible to assemble a file by reading one byte at a time from disk and without reading the entire file into RAM.
 
@@ -38,7 +34,7 @@ There are two exceptions to this made in the name of programmer comfort and the 
 
 * **Comments:**
 
-  Comments begin with a hash mark `#` and a space. The space is required after the hash mark so long as the end of the line doesn't immediately follow. Once the comment marker occurs, the rest of the line can be read in and skipped. This is the only instance where the end of a line matters
+  Comments begin with a hash mark `#` and a space. The space is required after the hash mark so long as the end of the line doesn't immediately follow. Once the comment marker occurs, the rest of the line can be read in and skipped
 
 * **Strings:**
 
@@ -50,7 +46,7 @@ There are two exceptions to this made in the name of programmer comfort and the 
 
 Therefore the parser must skip leading whitespace until it comes upon a character and handle the special cases: comments, numbers and strings, before resorting to a standard token.
 
-This EBNF grammar presents the parser's view of the incoming bytes, but doesn't enforce program structure, for example pairing `:` with `;`, that happens during assembling; although parsing and assembling may be happening at the same time depending on implementation.
+This EBNF grammar presents the parser's view of the incoming bytes, but doesn't enforce program structure, for example pairing `:` with `;`, that happens during assembling, although parsing and assembling may be happening at the same time depending on implementation.
 
 ```ebnf
 eol               = [ "\r" ] , "\n" ;
@@ -90,55 +86,19 @@ bit               = "0" | "1" ;
 string            = '"' , { ? any-character ? } , '"' ;
 ```
 
-As each token is ingested from the source file, it is categorised according to its type and assembled into the binary representation.
+### The Problem of Order
 
-Assembled code is simply a list of Values. For the implementation a Value is stored as a 1 byte type and a 2 byte datum. During execution, the interpreter checks the type and handles the datum accordingly.
+As each token is ingested from the source file, it is categorised according to its type and assembled into a binary representation.
 
-      type   datum        type   datum
-    +------+------------+------+------------+--- - - -
-    | byte | word       | byte | word       |
-    +------+------------+------+------------+--- - - -
+As we assemble one list, we will often need to start another list and then return to where we were. Consider an `if` function-call that is followed by an expression and a lambda to execute when true; the lambda is not inline as there would have to be a means of skipping over it.
 
-The Value data-types are:
-
-- **Function:**  
-  A function call. The datum is the address of the function's lambda (i.e. another list of value-instructions).
-
-- **Native Call:**  
-  A function call to native Z80 code. The datum is the address of the Z80 assembly routine.
-
-- **Small Constant:**  
-  A constant that can fit within 2 bytes.
-  The datum is the value.
-  
-  This will probably be unsigned-integer only, but a separate type could exist for signed integers
-
-- **An Integer:**  
-  The datum is a pointer to the value in memory.
-
-  > TODO: Should signed and unsigned be different types, should _Pling!_ care?
-
-- **A Float:**  
-  The datum is a pointer to the value in memory.
-
-  For an 8-bit system, it makes sense to separate integers and floats as the routines they use will be fundamentally different and float support might not be available. An x86-64 implementation could use a shared "number" type and do everything as 64-bit floats
-
-- **A String:**  
-
-
-- **A List:**  
-  The datum is a pointer to the List's contents, another list.
-
-- **End:**  
-  The end of a list, either a function or a list of values. For functions, this means returning from the call.
-
-> TODO: Struct
-
-As we assemble one list, we will often need to start another list and then return to where we were. Consider an `if` function-call that is followed by a lambda to execute when true; the lambda is not inline as there would have to be a means of skipping over it.
-
-    +----+------+---- - - -
-    | if | true |...
-    +----+------+---- - - -
+                           +---- - - -
+                    .----> | ...
+                    |      +---- - - -
+                    |      
+    +----+------+---+--+---- - - -
+    | if | expr | true |...
+    +----+--+---+------+---- - - -
             |
             |      +---- - - -
             '----> | ...
@@ -146,18 +106,117 @@ As we assemble one list, we will often need to start another list and then retur
 
 Therefore the assembler must be able to manage multiple on-going lists of unknown length.
 
-### Assembler Keywords:
+You cannot simply begin a new list a little ways off in memory hoping that when you return to where you were, there's enough headroom to continue; you cannot know ahead of time how long a list will be and if you have to keep shifting lists in memory to make additional room the process will not only be slow but may run out of memory.
 
-In _Pling!_ every token can be thought of as a function call, however during assembly there are special keywords that only have meaning during assembly and cannot be called at runtime.
+Every byte read *must* be handled and put somewhere as there is no way to go 'back' to it (the whole source file is not in RAM), therefore you cannot defer handling of a token until later.
 
-* Comments are parsed and discarded without being assembled
+_Pling!_'s solution to this is an intermediate representation consisting of a linked-list of Value types on a simple heap (i.e. no allocator).
 
-* The `fn` keyword defines a function to be assembled.  
-  Functions cannot be assembled during program execution
+A heap is a "pile" of data much like a stack where data is added to the top (or end, if we consider it horizontal) and only the top-most data can be removed.
 
-* The lambda definition `:` is a directive to the assembler to create a new list and begin populating it. The lambda ends with `;`
+               top of heap ->|
+    ----+------+------+------+
+    ... | data | data | data |
+    ----+------+------+------+
 
-* The opening bracket `(` is a directive to assemble an expression, which uses different assembling rules. The expression ends with `)`
+A heap is useful because it has no "gaps" (unused space) but there are severe restrictions -- only the top-most item can be expanded or contracted, and data can only be added or removed in-order. You cannot place two items on the heap and then remove the older (underneath) item first; all data is bound by scope.
 
-> TODO: `import`, `export`, `include` etc.
+## The Tokeniser
+
+As a token is read in, it is written to the top of the heap as a string.  
+A 1-byte padding is included at the beginning for later use.
+
+    ----+-------------------------+
+    ... | reserved ¦ token-string |
+    ----+-------------------------+
+
+The first character of the token is then looked at to determine the token-type.
+
+### Numbers
+
+If the token is a number type, marked by a `$`, `%` or numerical digit then it is converted from a string into a number literal and the token string on the heap is overwritten with a 1 byte type field and then the number literal in however many bytes are required as given by the type:
+
+    ----+-------------------------+
+    ... | reserved ¦ token-string |
+    ----+-------------------------+
+        |<------ discarded ------ ^
+        v
+    ----+-------------------+
+    ... | num-type ¦ number |
+    ----+-------------------+
+
+The datum of the Value has been captured but it is not the Value itself that can be executed. We now add a Value structure to the heap.
+
+        |<---   datum   --->|<---          value struct          --->|
+    ----+-------------------+----------------------------------------+
+    ... | num-type ¦ number | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+    ----+-------------------+-----------+----------------------------+
+        ^                               |
+        '-------------------------------'
+
+The Value structure includes a 1-byte type that indicates that this Value is a number. The data-pointer contains the address in the heap of the Value's data. The next-pointer will point to the next Value in the current list (when reached), and the row and column fields contain the line-number and column of text in the source file where the original Value occurs (for printing of error messages).
+
+### Strings
+
+As a string is read in it is appended to the end of the heap like so; again with the 1-byte reserved at the head. The opening speech-mark is included as the first character of every token is always included, however the final speech mark is excluded.
+
+    ----+----------------------------------------------------------+
+    ... | reserved ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
+    ----+----------------------------------------------------------+
+
+Strings can be much, much longer than other tokens, so once the entire string has been read in, the first *two* bytes of the string are replaced with the string-length. Note how this overwrites the opening speech-mark.
+
+    ----+-----------------------------------------------------------+
+    ... | string-length ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
+    ----+-----------------------------------------------------------+
+
+Now that the string has been captured on the heap, the Value structure is appended.
+
+        |<---  string  --->|<---          value struct          --->|
+    ----+------------------+----------------------------------------+
+    ... | str-len ¦ string | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+    ----+------------------+------------+---------------------------+
+        ^                               |
+        '-------------------------------'
+
+### Lambdas
+
+Since the lambda is a list within a list, a Value-structure is placed on the heap that points to the top of the heap where the sub-list will be assembled.
+
+        |<---          value struct          --->|
+    ----+----------------------------------------+
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+    ----+------------+---------------------------+
+                     |                           ^
+                     '---------------------------'
+
+The location [in the heap] of the parent list is remembered for later and the sub-list is assembled, Value by Value, as any other. When that list terminates, the location of the parent list is recalled and the next-pointer is updated to point to the top of the heap where the parent list may continue.
+
+                                .-----------------------------------.
+                                |                                   v
+    ----+-----------------------+----------------+------------------+
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ... sub-list ... |
+    ----+------------+---------------------------+------------------+
+                     |                           ^
+                     '---------------------------'
+
+It is the chaining of the data and next fields that allows lists to be built out of order and for lists-within-lists of any length and any depth of nesting, memory permitting, to be handled.
+
+### Function Calls
+
+A function call is simply a link to another list (Lambda) that has already been defined previously.
+
+                    ----+----------------------------------------+----
+                    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ...
+                    ----+------------+----------+----------------+----
+                                     |          |                ^
+        .----------------------------'          '----------------'
+        v
+    ----+----------------------------------------+----
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ...
+    ----+-----------------------+----------------+----
+                                |                ^
+                                '----------------'
+
+The language grammar is designed to not require forward-references, that is, calling a function before it's been defined. You must define a function before it can be called. This avoids having to do a second pass on the code to fix up forward-references and to minimise the amount of meta-data that needs to be held during assembly.
 

@@ -1,3 +1,11 @@
+2023-07-23:
+
+Improve how tokens are read from file and add basic type identification.
+
+2023-07-17:
+
+Write the token text to the heap whilst reading chars.
+
 2023-07-14:
 
 Add CP/M version check.
