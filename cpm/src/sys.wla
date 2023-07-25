@@ -1,0 +1,61 @@
+; ezOS CP/M (c) Kroc Camen 2023, MIT License
+; common functions shared by runtime and assembler
+;
+; macro to write a length-prefixed string:
+;
+.MACRO  .str    ARGS    str
+;>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        .BYTE   str.length              ; don't ASCII-map the string-length!!
+        .ASC    str                     ; map string to native encoding
+;<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+.ENDM
+
+compareString:
+;===============================================================================
+; compare two static strings:
+;
+; static strings are always length-prefixed and < 256 bytes,
+; so the lengths are checked first before comparing characters
+;
+; in:   HL                              first-string addr
+;       DE                              second-string addr
+;
+; the input registers are *not* preserved to allow for a quick and efficent
+; return! pushing & popping HL won't be faster than reloading HL from RAM
+; if you need to check one string against multiple others
+;
+; out:  z                               zero-flag; set=match, clear=mismatch!
+;       A, BC, DE, HL                   (clobbered)
+;       IX/Y                            (undefined)
+;-------------------------------------------------------------------------------
+        ; compare lengths (first bytes)
+        ;-----------------------------------------------------------------------
+        ; the first byte of each string is the length so we want to compare
+        ; lengths first to avoid checking whole strings. since string lengths
+        ; are 1-based, we can use the CPI instruction to do three things for
+        ; us at the same time: compare string lengths, decrement BC for 0-based
+        ; comparison loop and increment HL to the first character in the string
+        ;
+        ld      B,      0               ; (CPI instruction decrements BC)
+        ld      C,      [HL]            ; length of first string (used later)
+        ld      A,      [DE]            ; length of second-string
+        cpi                             ; compare, z is set if match
+        ret     nz                      ; lengths do not match, cannot be same
+
+        ; walk characters, comparing:
+        ;-----------------------------------------------------------------------
+        ; the CPI (ComPare & Increment) instruction does a comparison between
+        ; A & [HL], setting the zero-flag appropriately, then BC is decremented
+        ; setting p/v (positive/negative) flag and then HL is incremented, not
+        ; setting any flags! -- ergo, after CPI, z-flag indicates mis/match and
+        ; negative indicates end-of-string reached
+        ;
+-       inc     DE                      ; keep second-string in lock-step
+        ld      A,      [DE]            ; get char from second string
+        cpi                             ; `CP A, [HL]; DEC BC; INC HL`
+        ret     nz                      ; exit on any mismatch!
+        jp      p,      -               ; keep going as long as BC>=0
+
+        ; if all characters in the string are compared, the return
+        ; flags are the result of the last character comparison
+        ret

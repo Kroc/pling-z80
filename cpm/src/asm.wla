@@ -35,6 +35,13 @@ token_char:             .BYTE $00       ; first character of token
         col             BYTE            ; column-number
 .ENDST
 
+_keywords:
+;-------------------------------------------------------------------------------
+@fn:    .str    "fn"
+@let    .str    "let"
+@var    .str    "var"
+@get    .str    "get"
+
 
 file:
 ;===============================================================================
@@ -67,12 +74,12 @@ _getToken:
 ;===============================================================================
 ; reads the next token in the file and does some basic type identification:
 ;
-; note that this routine only checks the first couple of characters
-; and doesn't do any token conversion into literals
+; note that for literals this routine only checks the first couple of
+; characters and doesn't do any token conversion into literals. keywords
+; are indetified fully and anything else is assumed to be a function name
 ;
 ; out:  A                               token type as TOKEN_* constant
 ;                                       0 (TOKEN_EOF) for end-of-file
-;       BC                              token-string length
 ;-------------------------------------------------------------------------------
         ; read a token on to the heap:
         ;-----------------------------------------------------------------------
@@ -118,16 +125,14 @@ _getToken:
         cp      '9'+1                   ; but also <= "9"?
         jr      c,      @num            ; -- is number literal
 +       cp      '#'                     ; maybe a comment?
-        jr      nz,     @word           ; (if not, maybe a word?)
+        jr      nz,     +               ; (if not, maybe a word?)
 
         ; a comment requires the hashmark '#' to be standalone;
         ; a hash-prefixed word is still a valid token name,
         ; therefore check the length of the token:
         ;
         ex      AF,     AF'             ; (preserve first character)
-        dec     BC                      ; 16-bit DEC doesn't set zero-flag!
-        ld      A,      C               ; OR together B & C to look
-        or      B                       ;  for a zero bit pattern
+        dec     C                       ; if 1, check for 0
         jr      z,      @com            ; is a comment! skip over it
 
         ; token-string begins with "#" but is not a comment,
@@ -137,7 +142,36 @@ _getToken:
 
         ; keyword or function:
         ;-----------------------------------------------------------------------
-@word:  ld      A,      TOKEN_FUNCTION
+        ; compare against reserved keyword names
+        ;
++       ex      DE,     HL              ; (we can't combine HL and IX!)
+        ld      IXH,    D               ; copy 'HL' to IX for quick-ish re-use
+        ld      IXL,    E               ; (need to restore 'HL' for each call)
+        ld      HL,     _keywords@fn    ; is "fn" keyword?
+        call    compareString           ; do the string comparison, z=result
+        jr      z,      @key            ; => is a keyword
+        ld      D,      IXH             ; (I hate everything about this,
+        ld      E,      IXL             ;  but it's only 16 cycles)
+        ld      HL,     _keywords@let   ; is "let" keyword?
+        call    compareString           ; do the string comparison, z=result
+        jr      z,      @key            ; => is a keyword
+        ld      D,      IXH
+        ld      E,      IXL
+        ld      HL,     _keywords@var   ; is "var" keyword?
+        call    compareString           ; do the string comparison, z=result
+        jr      z,      @key            ; => is a keyword
+        ld      D,      IXH
+        ld      E,      IXL
+        ld      HL,     _keywords@get   ; is "get" keyword?
+        call    compareString           ; do the string comparison, z=result
+        jr      z,      @key            ; => is a keyword
+
+@name:  exx                             ; restore original token HL & DE
+        ld      A,      TOKEN_FUNCTION
+        ret
+
+@key:   exx                             ; restore original token HL & DE
+        ld      A,      TOKEN_KEYWORD
         ret
 
         ; comment:
@@ -162,10 +196,13 @@ _getToken:
 
         jp      @next
 
-        ; other token types:
+        ; string:
         ;-----------------------------------------------------------------------
 @str:   ld      A,      TOKEN_STRING
         ret
+
+        ; other token types:
+        ;-----------------------------------------------------------------------
 @num:   ld      A,      TOKEN_NUMBER
         ret
 
@@ -177,27 +214,28 @@ _readToken:
 ; this routine does not convert tokens into literals,
 ; only identifies the boundaries of the token-string
 ;
-; the token is pushed to the heap as a string, with one byte reserved at the
-; start. the terminator is included at the end, where DE is situated but not
-; part of the length in BC, for identifiying whitespace vs end-of-line /
-; end-of-file termination
+; the token is pushed to the heap as a length-prefixed string.
+; the terminator is included at the end, where DE is situated,
+; (for identifiying whitespace vs end-of-line / end-of-file
+; termination), but not as part of the length
 ;
-;    ----+----------------------------------------------------------+---+
-;    ... | reserved ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ W ¦ o ¦ r ¦ l ¦ d | " |
-;    ----+------------^---------------------------------------------+---+
-;        |< HL      | A                 < BC >                      |< DE
+;    ----+--------------------------------------------------------+---+
+;    ... | length ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ W ¦ o ¦ r ¦ l ¦ d | " |
+;    ----+----------^---------------------------------------------+---+
+;        |< HL    | A                 < C >                       |< DE
 ;
 ; in:   HL                              starting addr in heap
 ;
 ; out:  A                               first-character of token-string
-;       BC                              length of token, 0 = end of file!
-;       DE                              next unused heap address, containing
+;       C                               length of token, 0 = end of file!
+;                                       (also stored in the first byte)
+;       DE                              next free heap address, containing
 ;                                       the terminating character, i.e.
 ;                                       whitespace, end-of-line or end-of-file
 ;       HL                              (preserved)
-;       IX/Y                            (untouched)
+;       B, IX/Y                         (undefined)
 ;-------------------------------------------------------------------------------
-        ld      BC,     0               ; set starting length of token
+        ld      C,     0                ; set starting length of token
 
         ; skip leading whitespace:
         ;-----------------------------------------------------------------------
@@ -235,7 +273,8 @@ _readToken:
         ;-----------------------------------------------------------------------
 @char:  ex      AF,     AF'             ; preserve first character
         ;-----------------------------------------------------------------------
--       inc     BC                      ; increment character count
+-       inc     C                       ; increment character count
+                                        ; TODO: overflow! (token too long)
 
         ; keep reading characters until the next whitespace or end-of-file:
         ; note that this has the side-effect of returning the terminating
@@ -252,6 +291,7 @@ _readToken:
         cp      ASCII_SPC+1             ; check for ASCII code > $20 (spc)
         jr      nc,     -               ; keep adding non-whitespace chars
         ;-----------------------------------------------------------------------
+        ld      [HL],   C               ; write length to first byte
         ex      AF',    AF              ; return first character
         ret
 
@@ -261,13 +301,15 @@ _readToken:
         ;
 @str:   ex      AF,     AF'             ; preserve first character
         ;-----------------------------------------------------------------------
--       inc     BC                      ; increment character count
+-       inc     C                       ; increment character count
+                                        ; TODO: overflow! (token too long)
         call    _getChar                ; read a character
         inc     DE                      ; move the data-pointer forward
         ld      [DE],   A'              ; add the character to the heap
         cp      $22+1                   ; check for speech mark
         jr      nz,     -               ; keep adding string characters
         ;-----------------------------------------------------------------------
+        ld      [HL],   C               ; write length to first byte
         ex      AF',    AF              ; return first character
         ret
 
@@ -277,9 +319,11 @@ _getChar:
 ; reads the next character in the file.
 ; current row and column are maintained
 ;
+; TODO: handle tab (next 8th char boundary)
+;
 ; out:  A                               ASCII code, 0 for end-of-file
 ;       DE, HL                          (preserved)
-;       BC, IX/Y                        (untouched)
+;       BC, IX/Y                        (undefined)
 ;-------------------------------------------------------------------------------
         call    osGetChar               ; read a char from file
         ld      [char], A               ; retain returned character
