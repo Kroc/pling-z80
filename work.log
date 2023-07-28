@@ -1,3 +1,7 @@
+2023-07-28:
+
+Start work on a Lua version to get ahead of the design quicker than Z80.
+
 2023-07-23:
 
 Improve how tokens are read from file and add basic type identification.

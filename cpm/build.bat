@@ -1,5 +1,5 @@
 @ECHO OFF
-CLS & TITLE Building ezOS CP/M...
+CLS & TITLE Building Pling! CP/M...
 CD %~dp0
 ECHO:
 

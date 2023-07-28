@@ -1,6 +1,7 @@
 {
     "recommendations": [
         "alex-parker.ez80-asm",
-        "kroccamen.wla-dx-vscode"
+        "kroccamen.wla-dx-vscode",
+        "sumneko.lua"
     ]
 }

@@ -1,0 +1,11 @@
+# a test pling! script
+
+"this is a string"
+
+fn add :
+    get first
+    get second
+    var third ( first + second )
+    
+    third
+;
