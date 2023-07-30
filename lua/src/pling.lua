@@ -160,6 +160,8 @@ function Assembler:_tokenise(
                     "End of File before closing quote in string"
                 ) end
             end
+            -- skip over terminator
+            cursor:next()
         else
             --------------------------------------------------------------------
             -- keep reading any non-whitespace/newline characters
@@ -180,20 +182,23 @@ function Assembler:_tokenise(
                 return getWord()
             end
 
+            -- skip over terminator
+            cursor:next()
         end
         return { text = out_word, row = out_row, col = out_col }
     end
 
     ----------------------------------------------------------------------------
-    -- get a contiguous 'word' or string of text
-    token = getWord()
-    -- if we hit end-of-file, return current tokens
-    if token == {} then return tokens end
+    while not cursor:isEOF() do
+        -- get a contiguous 'word' or string of text
+        token = getWord()
+        -- if we hit end-of-file, return current tokens
+        if token == {} then break end
 
-    io.stdout:write( token.text )
+        io.stdout:write( "token: " .. token.text .. "\n")
 
-    table.insert( tokens, token )
-
+        table.insert( tokens, token )
+    end
     return tokens
 end
 

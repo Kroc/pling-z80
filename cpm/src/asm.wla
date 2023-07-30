@@ -111,7 +111,7 @@ _getToken:
 
         ; identify token type:
         ;-----------------------------------------------------------------------
-        ; TODO: negative symbol for numbers
+        ; begin with prefixes
         ;
         ld      A,      [token_char]    ; what is the first char of the token?
         cp      '"'                     ; a string?
@@ -124,27 +124,42 @@ _getToken:
         jr      c,      +               ; (if not, not a number literal)
         cp      '9'+1                   ; but also <= "9"?
         jr      c,      @num            ; -- is number literal
-+       cp      '#'                     ; maybe a comment?
-        jr      nz,     +               ; (if not, maybe a word?)
-
-        ; a comment requires the hashmark '#' to be standalone;
-        ; a hash-prefixed word is still a valid token name,
-        ; therefore check the length of the token:
++
+        ; compare against reserved keywords / symbols. there are only a few
+        ; keywords so it'll be simpler to do a small comparison tree than
+        ; calling a compare routine multiple times
         ;
-        ex      AF,     AF'             ; (preserve first character)
-        dec     C                       ; if 1, check for 0
+        ; one-character tokens:
+        ;-----------------------------------------------------------------------
+@one:   dec     C                       ; if 1, check for 0
+        jr      nz,     @two            ; -> more than 1 character
+
+        ; a comment requires the hashmark '#' to be standalone; a hash-prefixed
+        ; word is still a valid token name, therefore we've first verified the
+        ; token is only 1 character long
+        ;
+        cp      '#'                     ; maybe a comment?
         jr      z,      @com            ; is a comment! skip over it
 
-        ; token-string begins with "#" but is not a comment,
-        ; drop through to the keyword/function recogition
-        ;
-        ex      AF',    AF              ; (return A to the first character)
+        ; not a reseved 1-character token
+        ; -- treat as a user function name
+        jr      @name
 
+        ;-----------------------------------------------------------------------
+        ; two-character tokens:
+        ;-----------------------------------------------------------------------
+@two:   dec     C                       ; decrement a second time
+        jr      nz,     @three          ; -> more than 2 characters
+
+        cp      'f'
+
+@three:
         ; keyword or function:
         ;-----------------------------------------------------------------------
-        ; compare against reserved keyword names
-        ;
-+       ex      DE,     HL              ; (we can't combine HL and IX!)
+        
+
+
+        ex      DE,     HL              ; (we can't combine HL and IX!)
         ld      IXH,    D               ; copy 'HL' to IX for quick-ish re-use
         ld      IXL,    E               ; (need to restore 'HL' for each call)
         ld      HL,     _keywords@fn    ; is "fn" keyword?
