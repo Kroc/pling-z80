@@ -31,7 +31,7 @@ function Cursor:next ()
     -- of the string. the `char` method handles this situation
     self.index = self.index + 1
     -- note that this will return empty-string "" for out-of-bounds
-    self.char = self.text:sub( self.index, 1 )
+    self.char = self.text:sub( self.index, self.index )
     -- if end of file, column/row cannot increment
     if self:isEOF() then return self end
 
@@ -56,6 +56,11 @@ function Cursor:isEOF ()
     return (self.char == "")
 end
 
+function Cursor:isNewline ()
+    ----------------------------------------------------------------------------
+    return (self.char == "\n" or self.char == "\r" or self:isEOF())
+end
+
 -- is the current character a space?
 -- (this includes tab)
 --
@@ -64,6 +69,15 @@ function Cursor:isSpaceChar ()
     return (self.char == " " or self.char == "\t")
 end
 
+-- "whitespace" includes newlines,
+-- but does not include end-of-file
+--
+function Cursor:isWhitespace ()
+    return (self:isSpaceChar() or self.char == "\n")
+end
+
+-- none of the above
+--
 function Cursor:isVisibleChar ()
     ----------------------------------------------------------------------------
     return (
@@ -101,7 +115,7 @@ function Assembler:_assemble(
     f_in
 )   ----------------------------------------------------------------------------
     -- read the whole file into a binary-string
-    -- (we use binary mode to allow reading /n & /r manually)
+    -- (we use binary mode to allow reading /r & /n manually)
     local source = f_in:read( "a" )
 
     -- split the source code text into individual tokens
@@ -125,7 +139,7 @@ function Assembler:_tokenise(
         local out_word = ""
 
         -- ignore leading white-space
-        while cursor:isSpaceChar() do cursor:next() end
+        while cursor:isWhitespace() do cursor:next() end
         -- end-of-file reached without non-whitespace chars?
         if cursor:isEOF() then return {} end
 
@@ -146,7 +160,6 @@ function Assembler:_tokenise(
                     "End of File before closing quote in string"
                 ) end
             end
-
         else
             --------------------------------------------------------------------
             -- keep reading any non-whitespace/newline characters
@@ -155,7 +168,16 @@ function Assembler:_tokenise(
             end
 
             -- is it a comment?
+            --------------------------------------------------------------------
             if out_word == "#" then
+                -- continue skipping bytes until the end-of-line
+                -- or end-of-file
+                while not cursor:isNewline() do cursor:next() end
+                -- end-of-line found, skip over it
+                cursor:next()
+                -- comment token is not returned,
+                -- find the next one instead...
+                return getWord()
             end
 
         end
