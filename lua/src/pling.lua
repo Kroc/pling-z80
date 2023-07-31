@@ -202,6 +202,19 @@ function Assembler:_tokenise(
     return tokens
 end
 
+--------------------------------------------------------------------------------
+
 io.stdout:write( "Pling! Lua (c) Kroc Camen, 2023\n" )
 
-Asm = Assembler:new( "test" )
+-- command line argument?
+--
+if arg[1] == nil then
+    -- with no arguments, display the help text
+    io.stdout:write("\
+USAGE: \
+    pling <filepath> \
+")
+    os.exit()
+end
+
+Asm = Assembler:new( arg[1] )
