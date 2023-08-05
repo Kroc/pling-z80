@@ -9,6 +9,22 @@ require( "src.value" )
 require( "src.list" )
 
 -- module class template
+--
 Module = {
     name                = ""            -- module name, i.e. top-level scope
+,   public              = {}            -- public functions; the interface
+,   private             = {}            -- private functions, implementation
+,   init                = {}            -- module initialisation code
 }
+
+function Module:new (
+    name                                -- module name, i.e. filename, no ext.
+)   ----------------------------------------------------------------------------
+    local module = Module               -- use the template fields
+    setmetatable( module, self )        -- inherit from prototype
+    self.__index = self                 -- bind "self"
+
+    self.name = name                    -- set properties
+
+    return module                       -- return the new instance
+end

@@ -49,41 +49,41 @@ Therefore the parser must skip leading whitespace until it comes upon a characte
 This EBNF grammar presents the parser's view of the incoming bytes, but doesn't enforce program structure, for example pairing `:` with `;`, that happens during assembling, although parsing and assembling may be happening at the same time depending on implementation.
 
 ```ebnf
-eol               = [ "\r" ] , "\n" ;
-spaces            = "\s" + ;                  (* space + tab, no eol      *)
-whitespace        = ( spaces | eol ) + ;      (* spaces and newlines      *)
-letter            = "\S" ;                    (* non-whitespace character *)
+eol         = [ "\r" ] , "\n" ;
+spaces      = "\s" + ;                  (* space + tab, no eol      *)
+whitespace  = ( spaces | eol ) + ;      (* spaces and newlines      *)
+letter      = "\S" ;                    (* non-whitespace character *)
 
 (* only comments distinguish end-of-line so Pling! source code
    is simply a stream of tokens and whitespace *)
-source            = { [ whitespace ]          (* leading whitespace       *)
-                    , { token , whitespace }  (* separated by whitespace  *)
-                    , [ comment ]             (* optional comment         *)
-                    } ;
+source      = { [ whitespace ]          (* leading whitespace       *)
+              , { token , whitespace }  (* separated by whitespace  *)
+              , [ comment ]             (* optional comment         *)
+              } ;
 
 (* comments begin with # and run to the end of the line *)
-comment           = "#" , spaces , { ? not-eol ? } , eol
-                  | "#" , eol ;
+comment     = "#" , spaces , { ? not-eol ? } , eol
+            | "#" , eol ;
 
 (* tokens are made from a group of any non-whitespace characters
    or the special case handling of numbers & strings *)
-token             = ( number | string | letter + ) ;
+token       = ( number | string | letter + ) ;
 
 (* TODO: we won't include floats initially *)
-number            = integer | hexadecimal | binary ;
-integer           = first-digit , { digits } ;
-hexadecimal       = "$" , hexit + ;
-binary            = "%" , bit + ;
+number      = integer | hexadecimal | binary ;
+integer     = first-digit , { digits } ;
+hexadecimal = "$" , hexit + ;
+binary      = "%" , bit + ;
 
-first-digit       = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
-digits            = "0" | first-digit ;
-hexit             = digits | "a" | "b" | "c" | "d" | "e" | "f"
-                           | "A" | "B" | "C" | "D" | "E" | "F" ;
-bit               = "0" | "1" ;
+first-digit = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+digits      = "0" | first-digit ;
+hexit       = digits | "a" | "b" | "c" | "d" | "e" | "f"
+                     | "A" | "B" | "C" | "D" | "E" | "F" ;
+bit         = "0" | "1" ;
 
 (* TODO: strings should support escape codes,
    no way to embed a speech mark in a string a.t.m. *)
-string            = '"' , { ? any-character ? } , '"' ;
+string      = '"' , { ? any-character ? } , '"' ;
 ```
 
 ### The Problem of Order

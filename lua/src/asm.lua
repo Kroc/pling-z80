@@ -2,8 +2,9 @@
 -- assembler
 
 -- the Cursor manages the position in the source file
+-- (this is entirely internal to the assembler)
 --
-Cursor = {
+local Cursor = {
     text                = ""            -- source text
 ,   index               = 0             -- index in text (pre-increment)
 ,   char                = ""            -- current character
@@ -105,37 +106,40 @@ function Assembler:new (
 
     self.infile = s_infile              -- apply parameter
 
-    -- open source file, is it present?
-    --
-    local f_in,err = io.open( s_infile, "rb" )
-    if err then io.stderr:write( "Error: " .. err ); os.exit( false ); end
-    io.stdout:write( "Assembling '" .. s_infile .. "'\n" )
-
-    -- automatically begin assembling
-    self:_assemble( f_in )
-
-    -- cleanup, return
-    io.close( f_in )
     return assembler
 end
 
-function Assembler:_assemble (
-    f_in
-)   ----------------------------------------------------------------------------
-    -- read the whole file into a binary-string
+-- assemble source code into a pling code module
+-- returns a Module instance
+--
+function Assembler:assemble ()
+    ----------------------------------------------------------------------------
     -- (we use binary mode to allow reading /r & /n manually)
+    local f_in,err = io.open( self.infile, "rb" )
+    if f_in == nil then
+        io.stderr:write( "Error: " .. err ); os.exit( false );
+    end
+    io.stdout:write( "Assembling '" .. self.infile .. "'\n" )
+
+    -- read the entire source into a binary-string
     local source = f_in:read( "a" )
+    io.close( f_in )
 
     -- split the source code text into individual tokens
-    local tokens = self:_tokenise( source )
+    local tokens = self:tokenise( source )
     -- could be empty?
-    if #tokens == 0 then return end
+    if #tokens == 0 then error( "Source file empty, no module defintion.") end
 
+    -- create the Module instance to assemble into
+    -- TODO: this match is not pinned / checked for empty
+    local module = Module:new( self.infile:match( "[%w]+" ))
+
+    return module
 end
 
 --- split the source text into tokens
 --
-function Assembler:_tokenise (
+function Assembler:tokenise (
     s_in                                -- source text as binary-string
 )   ----------------------------------------------------------------------------
     local cursor = Cursor:new( s_in )
@@ -212,3 +216,14 @@ function Assembler:_tokenise (
     end
     return tokens
 end
+
+-- lua module interface
+--------------------------------------------------------------------------------
+return {
+    AssembleFile = function (
+        filepath        -- input source file
+    )   ------------------------------------------------------------------------
+        local assembler = Assembler:new( filepath )
+        local module = Assembler:assemble()
+    end
+}

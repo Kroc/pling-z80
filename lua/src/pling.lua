@@ -18,5 +18,5 @@ USAGE: \
     os.exit()
 end
 
-require( "src.asm" )
-Asm = Assembler:new( arg[1] )
+Asm = require( "src.asm" )
+Asm.AssembleFile( arg[1] )
