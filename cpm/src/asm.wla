@@ -43,44 +43,44 @@ token_col:              .BYTE $00       ; column-number at start of token
 token_char:             .BYTE $00       ; first character of token
 
 .ENUMID 0
-.ENUMID TOKEN_EOF                       ; end-of-file / no-token
+.ENUMID TKN_EOF                         ; end-of-file / no-token
 
 ; make the token IDs for the single-character symbols the same as their
 ; ASCII codes! (token IDs are opaque and never exposed to the developer)
 ; 
-TOKEN_COMMENT           = ASC_COMMENT   ; (not actually used)
-TOKEN_STRING            = ASC_STRING    ; a single-quote still opens a string
-TOKEN_LAMBDA_OPEN       = ASC_LAMBDA_OPEN
-TOKEN_LAMBDA_CLOSE      = ASC_LAMBDA_CLOSE
-TOKEN_EXPR_OPEN         = ASC_EXPR_OPEN
-TOKEN_EXPR_CLOSE        = ASC_EXPR_CLOSE
-TOKEN_LIST_OPEN         = ASC_LIST_OPEN
-TOKEN_LIST_CLOSE        = ASC_LIST_CLOSE
-TOKEN_OP_EQUALS         = ASC_OP_EQU
-TOKEN_OP_ADD            = ASC_OP_ADD
-TOKEN_OP_SUBTRACT       = ASC_OP_SUB    ; not minus!
-TOKEN_OP_MULTIPLY       = ASC_OP_MUL
-TOKEN_OP_DIVIDE         = ASC_OP_DIV
-TOKEN_OP_POWER          = ASC_OP_POW
-TOKEN_OP_MODULO         = ASC_OP_MOD
-TOKEN_OP_BITOR          = ASC_OP_OR
-TOKEN_OP_BITAND         = ASC_OP_AND
-TOKEN_OP_BITXOR         = ASC_OP_XOR
-TOKEN_OP_AT             = ASC_OP_AT
-TOKEN_POP               = ASC_POP
-TOKEN_PEEK              = ASC_PEEK
+TKN_COMMENT             = ASC_COMMENT   ; (not actually used)
+TKN_STRING              = ASC_STRING    ; a single-quote still opens a string
+TKN_LAMBDA_OPEN         = ASC_LAMBDA_OPEN
+TKN_LAMBDA_CLOSE        = ASC_LAMBDA_CLOSE
+TKN_EXPR_OPEN           = ASC_EXPR_OPEN
+TKN_EXPR_CLOSE          = ASC_EXPR_CLOSE
+TKN_LIST_OPEN           = ASC_LIST_OPEN
+TKN_LIST_CLOSE          = ASC_LIST_CLOSE
+TKN_OP_EQUALS           = ASC_OP_EQU
+TKN_OP_ADD              = ASC_OP_ADD
+TKN_OP_SUBTRACT         = ASC_OP_SUB    ; not minus!
+TKN_OP_MULTIPLY         = ASC_OP_MUL
+TKN_OP_DIVIDE           = ASC_OP_DIV
+TKN_OP_POWER            = ASC_OP_POW
+TKN_OP_MODULO           = ASC_OP_MOD
+TKN_OP_BITOR            = ASC_OP_OR
+TKN_OP_BITAND           = ASC_OP_AND
+TKN_OP_BITXOR           = ASC_OP_XOR
+TKN_OP_AT               = ASC_OP_AT
+TKN_POP                 = ASC_POP
+TKN_PEEK                = ASC_PEEK
 
 .ENUMID 128
-.ENUMID TOKEN_NUMBER                    ; a number literal (any kind)
-.ENUMID TOKEN_FUNCTION                  ; a function name
-.ENUMID TOKEN_KEYWORD_FN                ; the "fn" keyword
-.ENUMID TOKEN_KEYWORD_LET               ; the "let" keyword
-.ENUMID TOKEN_KEYWORD_VAR               ; the "var" keyword
-.ENUMID TOKEN_KEYWORD_SET               ; the "set" keyword
-.ENUMID TOKEN_KEYWORD_GET               ; the "get" keyword
-.ENUMID TOKEN_OP_GTE                    ; the ">=" operator
-.ENUMID TOKEN_OP_LTE                    ; the "<=" operator
-.ENUMID TOKEN_OP_OR                     ; the logical "or" operator
+.ENUMID TKN_NUMBER                      ; a number literal (any kind)
+.ENUMID TKN_FUNCTION                    ; a function name
+.ENUMID TKN_KEYWORD_FN                  ; the "fn" keyword
+.ENUMID TKN_KEYWORD_LET                 ; the "let" keyword
+.ENUMID TKN_KEYWORD_VAR                 ; the "var" keyword
+.ENUMID TKN_KEYWORD_SET                 ; the "set" keyword
+.ENUMID TKN_KEYWORD_GET                 ; the "get" keyword
+.ENUMID TKN_OP_GTE                      ; the ">=" operator
+.ENUMID TKN_OP_LTE                      ; the "<=" operator
+.ENUMID TKN_OP_OR                       ; the logical "or" operator
 
 ; values:
 ;-------------------------------------------------------------------------------
@@ -96,14 +96,6 @@ TOKEN_PEEK              = ASC_PEEK
         col             BYTE            ; column-number
 .ENDST
 
-_keywords:
-;-------------------------------------------------------------------------------
-@fn:    .str    "fn"
-@let    .str    "let"
-@var    .str    "var"
-@set    .str    "set"
-@get    .str    "get"
-
 
 file:
 ;===============================================================================
@@ -118,6 +110,7 @@ _assembleRoot:
 ; assemble source code starting at the root scope.
 ; certain keywords are only allowed from the root scope, e.g. imports
 ;-------------------------------------------------------------------------------
+        ld      HL,     [heap_addr]     ; get the current top of the heap
         call    _getToken
 
 ;;        ld      HL,     [heap_addr]
@@ -140,8 +133,11 @@ _getToken:
 ; characters and doesn't do any token conversion into literals. keywords
 ; are indetified fully and anything else is assumed to be a function name
 ;
-; out:  A                               token type as TOKEN_* constant
-;                                       0 (TOKEN_EOF) for end-of-file
+; in:   HL                              heap position
+; out:  A                               token type as TKN_* constant
+;                                       0 (TKN_EOF) for end-of-file
+;       HL                              (preserved)
+;       BC, IX                          (clobbered)
 ;-------------------------------------------------------------------------------
         ; read a token on to the heap:
         ;-----------------------------------------------------------------------
@@ -154,7 +150,6 @@ _getToken:
         ; in [HL] (the first byte). DE returns the hypothetical new
         ; top-of-heap and [DE] contains the terminator
         ;
-        ld      HL,     [heap_addr]     ; get the current top of the heap
 @next:  call    _readToken              ; read bytes on to heap @ HL
 
         ; temp: print token
@@ -176,34 +171,72 @@ _getToken:
 
         ; identify token type:
         ;-----------------------------------------------------------------------
-        ; compare against reserved keywords / symbols. there are only a few
-        ; keywords so it'll be simpler to do a small comparison tree than
-        ; calling a compare routine multiple times
+        ; strings are immediately identifiable regardless of length --
+        ; a quote-mark followed by newline includes the newline in the string!
         ;
-        ; TODO: could use a trie-like structure here which contains a character
-        ; and an offset to the next character to check if successful
+        cp      ASC_STRING              ; first character is quote-mark?
+        ret     z                       ; TKN_STRING == ASC_STRING :)
+
+        ; fast-track simple numbers; regardless of length (1 or more):
+        ; a token that starts with 0-9 is *always* a number. this is not true
+        ; of type-sigils as a binary number `%11111111` can be confused with
+        ; the modulo operator `%` unless length is checked first
         ;
-        ; one-character tokens:
-        ;-----------------------------------------------------------------------
-@one:   dec     C                       ; if 1, check for 0
+        cp      '0'                     ; >= "0"?
+        jr      c,      +               ; (if not, not a number literal)
+        cp      '9'+1                   ; but also <= "9"?
+        jp      nc,     +               ; (if not, not a number literal)
+
+        ld      A,      TKN_NUMBER      ; is a number literal
+        ret
+
+        ; check for length:
++       dec     C                       ; if 1, check for 0
         jr      nz,     @two            ; -> more than 1 character
 
+        ; comments:
+        ;-----------------------------------------------------------------------
         ; a comment requires the hashmark '#' to be standalone; a hash-prefixed
         ; word is still a valid token name, therefore we've first verified the
         ; token is only 1 character long
         ;
         cp      ASC_COMMENT             ; comment "#"?
-        jp      z,      @com            ; is a comment! skip over it
+        jr      nz,     @one            ; if not, skip comment handling
 
-        ; fast-track a single-digit number
-        cp      '0'                     ; >= "0"?
-        jr      c,      +               ; (if not, not a number literal)
-        cp      '9'+1                   ; but also <= "9"?
-        jp      c,      @num            ; -- is number literal
+        ; check the terminator; if a line ends with a hashmark '#' then that
+        ; also signals the end of the comment and we don't want to 'skip until
+        ; end-of-line' as that would consume the *next* line!
+        ;
+        ld      A,      [DE]            ; get terminating character
+        and     A                       ; (set flags!)
+        ret     z                       ; if EOF, also return with TKN_EOF
+        cp      ASCII_LF                ; "#\n"?
+        jr      z,      @next           ; yes, jump back to top of routine!
 
+        ; is comment. keep reading bytes until end-of-line/file
+        ;
+@skip:  call    _getChar                ; read a character
+        and     A                       ; (set flags!)
+        ret     z                       ; if EOF, also return with TKN_EOF
+        cp      ASCII_LF                ; reached end-of-line yet?
+        jr      nz,     @skip           ; no? keep reading chars
+
+        jr      @next
+
+        ; one-character tokens:
+        ;-----------------------------------------------------------------------
+        ; check for the following tokens:
+        ;
+        ;       #       :       ;       (       )       [       ]       =
+        ;       <       >       +       -       *       /       ^       %
+        ;       |       &       ~       @       !       ?
+        ;
+        ; TODO: could use a trie-like structure here which contains a character
+        ; and an offset to the next character to check if successful
+        ;
         ; TODO: use ASCII ranges for speeding this up?
         ;
-+       cp      ASC_LAMBDA_OPEN         ; lambda ":"?
+@one:   cp      ASC_LAMBDA_OPEN         ; lambda ":"?
         ret     z                       ; (the token-type is the ASCII code!)
         cp      ASC_LAMBDA_CLOSE        ; lambda ";"?
         ret     z
@@ -246,7 +279,8 @@ _getToken:
         cp      ASC_PEEK                ; parameter peek "?"?
         ret     z
 
-        ; not a reseved 1-character symbol or number
+        ; not a reseved 1-character symbol or number.
+        ; since it cannot be a type-sigil, it has to be a user-symbol
         jr      @name
 
         ;-----------------------------------------------------------------------
@@ -260,7 +294,7 @@ _getToken:
         pop     IX
 
         dec     C                       ; decrement a second time
-        jr      nz,     @sigil          ; -> more than 2 characters
+        jr      nz,     @three          ; -> more than 2 characters
 
         ; check for the following tokens:
         ;
@@ -272,8 +306,8 @@ _getToken:
         cp      'n'                     ; second character = "n"?
         jr      nz,     @name           ; if not "fn"; process as user-symbol
 
-        ld      A,      TOKEN_KEYWORD_FN
-        ret                             ; return "fn" keyword
+        ld      A,      TKN_KEYWORD_FN  ; return "fn" keyword
+        ret
 
 +       cp      'o'                     ; first character = "o"?
         jr      nz,     +
@@ -281,7 +315,7 @@ _getToken:
         cp      'r'                     ; second character = "r"?
         jr      nz,     @name           ; if not "or", process as user-symbol
 
-        ld      A,      TOKEN_OP_OR
+        ld      A,      TKN_OP_OR
         ret                             ; return "or" operator
 
 +       cp      ASC_OP_GT               ; first character = ">"?
@@ -290,8 +324,8 @@ _getToken:
         cp      ASC_OP_EQU              ; second character = "="?
         jr      nz,     @name           ; if not ">=", process as user-symbol
 
-        ld      A,      TOKEN_OP_GTE
-        ret                             ; return ">=" operator
+        ld      A,      TKN_OP_GTE      ; return ">=" operator
+        ret
 
 +       cp      ASC_OP_LT               ; first character = "<"?
         jr      nz,     +
@@ -299,57 +333,67 @@ _getToken:
         cp      ASC_OP_EQU              ; second character = "="?
         jr      nz,     @name           ; if not "<=", process as user-symbol
 
-        ld      A,      TOKEN_OP_LTE
-        ret                             ; return "<=" operator
+        ld      A,      TKN_OP_LTE      ; return "<=" operator
+        ret
 
-        ; not a reserved 2-character symbol
-+       jr      @name
+        ; not a reserved 2-character symbol,
+        ; but could still have a type-sigil
++       jr      @sigil
+
+        ;-----------------------------------------------------------------------
+        ; three character tokens:
+        ;-----------------------------------------------------------------------
+        ; check for the following tokens:
+        ;
+        ;       let     var     set     get
+        ;
+@three: cp      'v'                     ; is the first character "v"?
+        jr      nz,     +               ; if not, keep going
+        ld      A,      TKN_KEYWORD_VAR ; return "var" keyword
+        ret
+
+        ; hint: is the second character "e"?
+        ;
++       ex      AF,     AF'             ; preserve first character for a moment
+        ld      A',     [IX+2]          ; get second character
+        cp      'e'                     ; is it "e", as in "[lsg]et"?
+        jr      nz,     ++              ; if not, cannot be any of those three
+        ld      A',     [IX+3]          ; get third character
+        cp      't'                     ; is it "t"?
+        jr      nz,     ++              ; if not, cannot be any of those three
+
+        ex      AF',    AF              ; return to first character
+
+        cp      'l'                     ; is it "l" as in "let"?
+        jr      nz,     +               ; if not try next keyword
+        ld      A,      TKN_KEYWORD_LET ; if so, return keyword "let"
+        ret
+
++       cp      's'                     ; is it "s" as in "set"?
+        jr      nz,     +               ; if not try next keyword
+        ld      A,      TKN_KEYWORD_SET ; if so, return keyword "set"
+        ret
+
++       cp      'g'                     ; is it "g" as in "get"?
+        jr      nz,     @sigil          ; if not, must be user-symbol
+
+        ld      A,      TKN_KEYWORD_GET ; if so, return keyword "get"
+        ret
+
+++      ex      AF',    AF              ; return to first character
 
         ;-----------------------------------------------------------------------
         ; type-sigils, i.e. token prefixes
         ;-----------------------------------------------------------------------
-@sigil: cp      ASC_STRING              ; a string?
-        ret     z                       ; ASC_STRING == TOKEN_STRING :)
-
-        cp      ASC_HEX                 ; hexadecimal literal?
+@sigil: cp      ASC_HEX                 ; hexadecimal literal?
         jr      z,      @num
         cp      ASC_BIN                 ; binary literal?
         jr      z,      @num
 
-@number:
-        cp      '0'                     ; >= "0"?
-        jr      c,      +               ; (if not, not a number literal)
-        cp      '9'+1                   ; but also <= "9"?
-        jr      c,      @num            ; -- is number literal
-+
-
-@name:  ld      A,      TOKEN_FUNCTION
+@name:  ld      A,      TKN_FUNCTION
         ret
-
-@num:   ld      A,      TOKEN_NUMBER
+@num:   ld      A,      TKN_NUMBER
         ret
-
-        ; comment:
-        ;-----------------------------------------------------------------------
-        ; check the terminator; if a line ends with a hashmark '#' then that
-        ; also signals the end of the comment and we don't want to 'skip until
-        ; end-of-line' as that would consume the *next* line!
-        ;
-@com:   ld      A,      [DE]            ; get terminating character
-        and     A                       ; (set flags!)
-        ret     z                       ; if EOF, also return with TOKEN_EOF
-        cp      ASCII_LF                ; "#\n"?
-        jp      z,      @next           ; yes, jump back to top of routine!
-
-        ; is comment. keep reading bytes until end-of-line/file
-        ;
-@skip:  call    _getChar                ; read a character
-        and     A                       ; (set flags!)
-        ret     z                       ; if EOF, also return with TOKEN_EOF
-        cp      ASCII_LF                ; reached end-of-line yet?
-        jr      nz,     @skip           ; no? keep reading chars
-
-        jp      @next
 
 
 _readToken:

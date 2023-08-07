@@ -319,9 +319,6 @@ The type of a value is bound to it. If you push a number to the data-stack you c
 
 (in progress...)
 
-
-
-
 ## Keywords ##
 
 _Pling!_ reserves these symbol names for built-in keywords, functions, operators and type-sigils:
