@@ -6,7 +6,7 @@ The Z80 has a 16-bit address bus and is therefore limited to 64KB of RAM / addre
 
 This document is speculative and doesn't represent working code / design.
 
-## Assembly:
+## Source:
 
 _Pling!_ source code is represented as a list of _Values_.  
 Values are _Pling!_'s variant data type.
@@ -21,7 +21,7 @@ these are the Value Types provided by _Pling!_:
 - A list `[` ... `]`
 - A struct `{` ... `}` (TODO)
 
-_Pling!_ source code is designed to be assembled into a compact, binary form with a single-pass, forward-only assembler without look-ahead.
+_Pling!_ source code is designed to be assembled into a compact, binary form with a single-pass, forward-only assembler without look-ahead; that is, any token can be identified without the need to know what the next token is.
 
 It should be possible to assemble a file by reading one byte at a time from disk and without reading the entire file into RAM.
 
@@ -38,18 +38,18 @@ There are two exceptions to this made in the name of programmer comfort and the 
 
 * **Strings:**
 
-  Strings in _Pling!_ look like strings in any other language rather than _Forth_'s oddly disconnected strings (` " Space after opening speech mark!"`), a concession to fit its simple design.
+  Strings in _Pling!_ look like strings in any other language rather than _Forth_'s oddly disconnected strings (` " Space after opening quote mark!"`), a concession to fit its simple design.
 
-  When a token begins with a speech-mark, keep reading bytes until a closing speech-mark. The whole string is taken as one token
+  When a token begins with a quote-mark, keep reading bytes until a closing quote-mark, this includes line-breaks! The whole string is taken as one token
 
-  > TODO: escape codes, cannot yet include speech marks in strings.
+  > TODO: escape codes, cannot yet include quote-marks in strings.
 
-Therefore the parser must skip leading whitespace until it comes upon a character and handle the special cases: comments, numbers and strings, before resorting to a standard token.
+Therefore, the tokeniser must skip leading whitespace until it comes upon a character and handle the special cases: comments and strings, before resorting to a standard token.
 
-This EBNF grammar presents the parser's view of the incoming bytes, but doesn't enforce program structure, for example pairing `:` with `;`, that happens during assembling, although parsing and assembling may be happening at the same time depending on implementation.
+This EBNF grammar presents the tokeniser's view of the incoming bytes, but doesn't enforce program structure, for example pairing `:` with `;`, that happens during parsing, although tokenising and parsing may be happening at the same time depending on implementation.
 
 ```ebnf
-eol         = [ "\r" ] , "\n" ;
+eol         = [ "\r" + ] , "\n" ;
 spaces      = "\s" + ;                  (* space + tab, no eol      *)
 whitespace  = ( spaces | eol ) + ;      (* spaces and newlines      *)
 letter      = "\S" ;                    (* non-whitespace character *)
@@ -82,7 +82,7 @@ hexit       = digits | "a" | "b" | "c" | "d" | "e" | "f"
 bit         = "0" | "1" ;
 
 (* TODO: strings should support escape codes,
-   no way to embed a speech mark in a string a.t.m. *)
+   no way to embed a quote mark in a string a.t.m. *)
 string      = '"' , { ? any-character ? } , '"' ;
 ```
 
@@ -110,36 +110,39 @@ You cannot simply begin a new list a little ways off in memory hoping that when 
 
 Every byte read *must* be handled and put somewhere as there is no way to go 'back' to it (the whole source file is not in RAM), therefore you cannot defer handling of a token until later.
 
-_Pling!_'s solution to this is an intermediate representation consisting of a linked-list of Value types on a simple heap (i.e. no allocator).
+### Intermediate Representation
+
+_Pling!_'s solution to indeterminate order is an intermediate representation using a linked-list of Value-types on a simple heap (i.e. no allocator).
 
 A heap is a "pile" of data much like a stack where data is added to the top (or end, if we consider it horizontal) and only the top-most data can be removed.
 
                top of heap ->|
     ----+------+------+------+
-    ... | data | data | data |
-    ----+------+------+------+
+    ... | data | data | data |  (free space)
+    ----+------+------+------+----------------->
 
 A heap is useful because it has no "gaps" (unused space) but there are severe restrictions -- only the top-most item can be expanded or contracted, and data can only be added or removed in-order. You cannot place two items on the heap and then remove the older (underneath) item first; all data is bound by scope.
 
+<!-- The use of a heap during assembly solves the problem of indeterminate order but is not space-efficient for execution where a binary form has already been saved to disk and retrieved. -->
+
 ## The Tokeniser
 
-As a token is read in, it is written to the top of the heap as a string.  
-A 1-byte padding is included at the beginning for later use.
+As a token is read in, it is written to the top of the heap as a length-prefixed string.
 
-    ----+-------------------------+
-    ... | reserved ¦ token-string |
-    ----+-------------------------+
+    ----+------------------------+
+    ... | str-len ¦ token-string |
+    ----+------------------------+
 
-The first character of the token is then looked at to determine the token-type.
+The first character of the token is then looked at to determine the token-type:
 
 ### Numbers
 
 If the token is a number type, marked by a `$`, `%` or numerical digit then it is converted from a string into a number literal and the token string on the heap is overwritten with a 1 byte type field and then the number literal in however many bytes are required as given by the type:
 
-    ----+-------------------------+
-    ... | reserved ¦ token-string |
-    ----+-------------------------+
-        |<------ discarded ------ ^
+    ----+------------------------+
+    ... | str-len ¦ token-string |
+    ----+------------------------+
+        |<------ discarded ----- ^
         v
     ----+-------------------+
     ... | num-type ¦ number |
@@ -158,13 +161,13 @@ The Value structure includes a 1-byte type that indicates that this Value is a n
 
 ### Strings
 
-As a string is read in it is appended to the end of the heap like so; again with the 1-byte reserved at the head. The opening speech-mark is included as the first character of every token is always included, however the final speech mark is excluded.
+As a string is read in it is appended to the end of the heap like so; again with the 1-byte reserved at the head. The opening quote-mark is included as the first character of every token is always included, however the final quote-mark is excluded.
 
     ----+----------------------------------------------------------+
     ... | reserved ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
     ----+----------------------------------------------------------+
 
-Strings can be much, much longer than other tokens, so once the entire string has been read in, the first *two* bytes of the string are replaced with the string-length. Note how this overwrites the opening speech-mark.
+Strings can be much, much longer than other tokens, so once the entire string has been read in, the first *two* bytes of the string are replaced with the string-length. Note how this overwrites the opening quote-mark.
 
     ----+-----------------------------------------------------------+
     ... | string-length ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
@@ -181,24 +184,24 @@ Now that the string has been captured on the heap, the Value structure is append
 
 ### Lambdas
 
-Since the lambda is a list within a list, a Value-structure is placed on the heap that points to the top of the heap where the sub-list will be assembled.
+Since a lambda is a list within a list, a Value-structure is placed on the heap that will point to the next Value where the lambda will be assembled (be aware that a number / string literal might be added to the heap, before the next Value-struct).
 
         |<---          value struct          --->|
-    ----+----------------------------------------+
-    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
-    ----+------------+---------------------------+
-                     |                           ^
-                     '---------------------------'
+    ----+----------------------------------------+---------------
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ... lambda ...
+    ----+------------+---------------------------+---------------
+        (lambda)     |                              ^
+                     '------------------------------'
 
-The location [in the heap] of the parent list is remembered for later and the sub-list is assembled, Value by Value, as any other. When that list terminates, the location of the parent list is recalled and the next-pointer is updated to point to the top of the heap where the parent list may continue.
+The location [in the heap] of the parent list is remembered for later and the lambda is assembled, Value by Value, as any other. When that list terminates, the location of the parent list is recalled and the next-pointer is updated to point to the top of the heap where the parent list may continue.
 
-                                .-----------------------------------.
-                                |                                   v
-    ----+-----------------------+----------------+------------------+
-    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ... sub-list ... |
-    ----+------------+---------------------------+------------------+
-                     |                           ^
-                     '---------------------------'
+                                .------------------------------.
+                                |                              v
+    ----+-----------------------+----------------+----------+----
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | (lambda) | ...
+    ----+------------+---------------------------+----------+----
+                     |                             ^
+                     '-----------------------------'
 
 It is the chaining of the data and next fields that allows lists to be built out of order and for lists-within-lists of any length and any depth of nesting, memory permitting, to be handled.
 
@@ -209,14 +212,53 @@ A function call is simply a link to another list (Lambda) that has already been 
                     ----+----------------------------------------+----
                     ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ...
                     ----+------------+----------+----------------+----
-                                     |          |                ^
-        .----------------------------'          '----------------'
+                                     |          |                   ^
+        .----------------------------'          '-------------------'
         v
     ----+----------------------------------------+----
     ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ...
     ----+-----------------------+----------------+----
-                                |                ^
-                                '----------------'
+                                |                   ^
+                                '-------------------'
 
 The language grammar is designed to not require forward-references, that is, calling a function before it's been defined. You must define a function before it can be called. This avoids having to do a second pass on the code to fix up forward-references and to minimise the amount of meta-data that needs to be held during assembly.
 
+The heading below describes the process of mapping function names in string form from the source code to the existing assembled code.
+
+## The Dictionary
+
+A dictionary is a lookup of function names to their position within the assembled code. It is named after _Forth_'s dictionary (because it calls tokens "words").
+
+The _Pling!_ keyword `fn` defines a new function. `fn` is a special keyword that only the assembler understands and does not exist in the assembled code when running.
+
+When the parser comes across the `fn` keyword, it reads the next token as the name of the function to use. A dictionary Value is created on top of the heap, pointing to the function name just captured.
+
+        |< function-name >|<---        dictionary-entry        --->|
+    ----+-----------------+----------------------------------------+
+    ... | len ¦ f | o | o | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
+    ----+-----------------+------------+---------------------------+
+        ^                              |
+        '------------------------------'
+
+The type field is used for private flags. The data field points to the beginning of the function-name string. The next field will point to the next *dictionary* entry (when it occurs), *not* the beginning of the function lambda; the function lambda is assumed to immediately follow the dictionary entry:
+
+        |<---        dictionary-entry        --->|< lambda >|
+    ----+----------------------------------------+----------+
+    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |    ...   |
+    ----+------------+----------+----------------+----------+
+                     |          |
+      (name) <-------'          '----> (next dictionary-entry)
+
+The `next-ptr` field of the previous Value is not updated until after the function is defined and a non function-definition occurs. That is, the previous Value skips 'over' the function definition.
+
+        .-----------------------------.
+        |                             |
+    +---+---+---------------------+---v---+----
+    | value | dict-entry ¦ lambda | value | ...
+    +-------+---^----+------------+-------+----
+                |    |
+    - - - ------'    '------> (dict-entry)
+
+When a function name token is encountered, the chain of dictionary entries is followed to find the function.
+
+A more efficient method of building the dictionary and searching it might be used in the future, however the current method allows building directly on the heap during tokenisation without having to place a dictionary structure somewhere in memory that may grow too large, or the heap might run into.

@@ -192,7 +192,7 @@ Functions for manipulating lists exist, but these are library functions rather t
 
 Accessing an index of a list is done with the `@` operator.
 
-    var numbers [ 1 2 3 ];
+    var numbers [ 1 2 3 ]
     echo ( numbers @ 2 )        # prints "2"
 
 <!--
