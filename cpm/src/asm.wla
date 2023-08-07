@@ -1,6 +1,34 @@
 ; ezOS CP/M (c) Kroc Camen 2023, MIT License
 ; Pling! assembler
 ;
+; ASCII codes for various built-in symbols:
+;
+ASC_COMMENT             = '#'
+ASC_STRING              = '"'
+ASC_HEX                 = '$'
+ASC_BIN                 = '%'
+ASC_LAMBDA_OPEN         = ':'
+ASC_LAMBDA_CLOSE        = ';'
+ASC_EXPR_OPEN           = '('
+ASC_EXPR_CLOSE          = ')'
+ASC_LIST_OPEN           = '['
+ASC_LIST_CLOSE          = ']'
+ASC_OP_EQU              = '='
+ASC_OP_LT               = '<'
+ASC_OP_GT               = '>'
+ASC_OP_ADD              = '+'
+ASC_OP_SUB              = '-'
+ASC_OP_MUL              = '*'
+ASC_OP_DIV              = '/'
+ASC_OP_POW              = '^'
+ASC_OP_MOD              = '%'
+ASC_OP_OR               = '|'
+ASC_OP_AND              = '&'
+ASC_OP_XOR              = '~'
+ASC_OP_AT               = '@'
+ASC_POP                 = '!'
+ASC_PEEK                = '?'
+
 ; tokens:
 ;-------------------------------------------------------------------------------
 ; TODO: this needs to be recursive because if a Pling! file imports another
@@ -16,10 +44,43 @@ token_char:             .BYTE $00       ; first character of token
 
 .ENUMID 0
 .ENUMID TOKEN_EOF                       ; end-of-file / no-token
+
+; make the token IDs for the single-character symbols the same as their
+; ASCII codes! (token IDs are opaque and never exposed to the developer)
+; 
+TOKEN_COMMENT           = ASC_COMMENT   ; (not actually used)
+TOKEN_STRING            = ASC_STRING    ; a single-quote still opens a string
+TOKEN_LAMBDA_OPEN       = ASC_LAMBDA_OPEN
+TOKEN_LAMBDA_CLOSE      = ASC_LAMBDA_CLOSE
+TOKEN_EXPR_OPEN         = ASC_EXPR_OPEN
+TOKEN_EXPR_CLOSE        = ASC_EXPR_CLOSE
+TOKEN_LIST_OPEN         = ASC_LIST_OPEN
+TOKEN_LIST_CLOSE        = ASC_LIST_CLOSE
+TOKEN_OP_EQUALS         = ASC_OP_EQU
+TOKEN_OP_ADD            = ASC_OP_ADD
+TOKEN_OP_SUBTRACT       = ASC_OP_SUB    ; not minus!
+TOKEN_OP_MULTIPLY       = ASC_OP_MUL
+TOKEN_OP_DIVIDE         = ASC_OP_DIV
+TOKEN_OP_POWER          = ASC_OP_POW
+TOKEN_OP_MODULO         = ASC_OP_MOD
+TOKEN_OP_BITOR          = ASC_OP_OR
+TOKEN_OP_BITAND         = ASC_OP_AND
+TOKEN_OP_BITXOR         = ASC_OP_XOR
+TOKEN_OP_AT             = ASC_OP_AT
+TOKEN_POP               = ASC_POP
+TOKEN_PEEK              = ASC_PEEK
+
+.ENUMID 128
 .ENUMID TOKEN_NUMBER                    ; a number literal (any kind)
-.ENUMID TOKEN_STRING                    ; a string literal
-.ENUMID TOKEN_KEYWORD                   ; an assembler keyword, e.g. "fn"
 .ENUMID TOKEN_FUNCTION                  ; a function name
+.ENUMID TOKEN_KEYWORD_FN                ; the "fn" keyword
+.ENUMID TOKEN_KEYWORD_LET               ; the "let" keyword
+.ENUMID TOKEN_KEYWORD_VAR               ; the "var" keyword
+.ENUMID TOKEN_KEYWORD_SET               ; the "set" keyword
+.ENUMID TOKEN_KEYWORD_GET               ; the "get" keyword
+.ENUMID TOKEN_OP_GTE                    ; the ">=" operator
+.ENUMID TOKEN_OP_LTE                    ; the "<=" operator
+.ENUMID TOKEN_OP_OR                     ; the logical "or" operator
 
 ; values:
 ;-------------------------------------------------------------------------------
@@ -40,6 +101,7 @@ _keywords:
 @fn:    .str    "fn"
 @let    .str    "let"
 @var    .str    "var"
+@set    .str    "set"
 @get    .str    "get"
 
 
@@ -87,9 +149,10 @@ _getToken:
         ; (or by quote-marks for strings)
         ;
         ; HL is the address of the top of the heap; this won't be advanced
-        ; and the heap pointer won't be updated. BC returns the length of
-        ; the token-string *excluding* the reserved byte. DE returns the
-        ; hypothetical new top-of-heap and [DE] contains the terminator
+        ; and the heap pointer won't be updated. C returns the length of
+        ; the token-string, excluding the terminator and this is mirrored
+        ; in [HL] (the first byte). DE returns the hypothetical new
+        ; top-of-heap and [DE] contains the terminator
         ;
         ld      HL,     [heap_addr]     ; get the current top of the heap
 @next:  call    _readToken              ; read bytes on to heap @ HL
@@ -97,6 +160,7 @@ _getToken:
         ; temp: print token
         push    BC
         push    HL
+        push    AF
         inc     HL
         ld      B,      C
         ld      C,      0
@@ -106,28 +170,18 @@ _getToken:
         djnz    -
         ld      A,      ASCII_LF
         call    osPrintChar
+        pop     AF
         pop     HL
         pop     BC
 
         ; identify token type:
         ;-----------------------------------------------------------------------
-        ; begin with prefixes
-        ;
-        ld      A,      [token_char]    ; what is the first char of the token?
-        cp      '"'                     ; a string?
-        jr      z,      @str
-        cp      '$'                     ; hexadecimal literal?
-        jr      z,      @num
-        cp      '%'                     ; binary literal?
-        jr      z,      @num
-        cp      '0'                     ; >= "0"?
-        jr      c,      +               ; (if not, not a number literal)
-        cp      '9'+1                   ; but also <= "9"?
-        jr      c,      @num            ; -- is number literal
-+
         ; compare against reserved keywords / symbols. there are only a few
         ; keywords so it'll be simpler to do a small comparison tree than
         ; calling a compare routine multiple times
+        ;
+        ; TODO: could use a trie-like structure here which contains a character
+        ; and an offset to the next character to check if successful
         ;
         ; one-character tokens:
         ;-----------------------------------------------------------------------
@@ -138,55 +192,141 @@ _getToken:
         ; word is still a valid token name, therefore we've first verified the
         ; token is only 1 character long
         ;
-        cp      '#'                     ; maybe a comment?
-        jr      z,      @com            ; is a comment! skip over it
+        cp      ASC_COMMENT             ; comment "#"?
+        jp      z,      @com            ; is a comment! skip over it
 
-        ; not a reseved 1-character token
-        ; -- treat as a user function name
+        ; fast-track a single-digit number
+        cp      '0'                     ; >= "0"?
+        jr      c,      +               ; (if not, not a number literal)
+        cp      '9'+1                   ; but also <= "9"?
+        jp      c,      @num            ; -- is number literal
+
+        ; TODO: use ASCII ranges for speeding this up?
+        ;
++       cp      ASC_LAMBDA_OPEN         ; lambda ":"?
+        ret     z                       ; (the token-type is the ASCII code!)
+        cp      ASC_LAMBDA_CLOSE        ; lambda ";"?
+        ret     z
+        cp      ASC_EXPR_OPEN           ; expression "("?
+        ret     z
+        cp      ASC_EXPR_CLOSE          ; expression ")"?
+        ret     z
+        cp      ASC_LIST_OPEN           ; list "["?
+        ret     z
+        cp      ASC_LIST_CLOSE          ; list "]"?
+        ret     z
+        cp      ASC_OP_EQU              ; equals operator "="?
+        ret     z
+        cp      ASC_OP_LT               ; less-than operator "<"?
+        ret     z
+        cp      ASC_OP_GT               ; greater-than operator ">"?
+        ret     z
+        cp      ASC_OP_ADD              ; add operator "+"?
+        ret     z
+        cp      ASC_OP_SUB              ; subtract operator "-"?
+        ret     z
+        cp      ASC_OP_MUL              ; multiply operator "*"?
+        ret     z
+        cp      ASC_OP_DIV              ; divide operator "/"?
+        ret     z
+        cp      ASC_OP_POW              ; power (exponention) operator "^"?
+        ret     z
+        cp      ASC_OP_MOD              ; modulo operator "%"?
+        ret     z
+        cp      ASC_OP_OR               ; bitwise OR operator "|"?
+        ret     z
+        cp      ASC_OP_AND              ; bitwise AND operator "&"?
+        ret     z
+        cp      ASC_OP_XOR              ; bitwise XOR operator "~"?
+        ret     z
+        cp      ASC_OP_AT               ; index at operator "@"?
+        ret     z
+        cp      ASC_POP                 ; parameter pop "!"?
+        ret     z
+        cp      ASC_PEEK                ; parameter peek "?"?
+        ret     z
+
+        ; not a reseved 1-character symbol or number
         jr      @name
 
         ;-----------------------------------------------------------------------
         ; two-character tokens:
         ;-----------------------------------------------------------------------
-@two:   dec     C                       ; decrement a second time
-        jr      nz,     @three          ; -> more than 2 characters
+        ; only at this point is it necessary to refer to the second-or-more
+        ; character, so we need a pointer to the token-string (we want to
+        ; preserve HL)
+        ;
+@two:   push    HL
+        pop     IX
 
-        cp      'f'
+        dec     C                       ; decrement a second time
+        jr      nz,     @sigil          ; -> more than 2 characters
 
-@three:
-        ; keyword or function:
+        ; check for the following tokens:
+        ;
+        ;       fn      or      >=      <=      !=
+        ;
+        cp      'f'                     ; first character = "f"?
+        jr      nz,     +
+        ld      A,      [IX+2]          ; 0 = size byte, 1 = first character
+        cp      'n'                     ; second character = "n"?
+        jr      nz,     @name           ; if not "fn"; process as user-symbol
+
+        ld      A,      TOKEN_KEYWORD_FN
+        ret                             ; return "fn" keyword
+
++       cp      'o'                     ; first character = "o"?
+        jr      nz,     +
+        ld      A,      [IX+2]          ; get second character
+        cp      'r'                     ; second character = "r"?
+        jr      nz,     @name           ; if not "or", process as user-symbol
+
+        ld      A,      TOKEN_OP_OR
+        ret                             ; return "or" operator
+
++       cp      ASC_OP_GT               ; first character = ">"?
+        jr      nz,     +
+        ld      A,      [IX+2]          ; get second character
+        cp      ASC_OP_EQU              ; second character = "="?
+        jr      nz,     @name           ; if not ">=", process as user-symbol
+
+        ld      A,      TOKEN_OP_GTE
+        ret                             ; return ">=" operator
+
++       cp      ASC_OP_LT               ; first character = "<"?
+        jr      nz,     +
+        ld      A,      [IX+2]          ; get second character
+        cp      ASC_OP_EQU              ; second character = "="?
+        jr      nz,     @name           ; if not "<=", process as user-symbol
+
+        ld      A,      TOKEN_OP_LTE
+        ret                             ; return "<=" operator
+
+        ; not a reserved 2-character symbol
++       jr      @name
+
         ;-----------------------------------------------------------------------
-        
+        ; type-sigils, i.e. token prefixes
+        ;-----------------------------------------------------------------------
+@sigil: cp      ASC_STRING              ; a string?
+        ret     z                       ; ASC_STRING == TOKEN_STRING :)
 
+        cp      ASC_HEX                 ; hexadecimal literal?
+        jr      z,      @num
+        cp      ASC_BIN                 ; binary literal?
+        jr      z,      @num
 
-        ex      DE,     HL              ; (we can't combine HL and IX!)
-        ld      IXH,    D               ; copy 'HL' to IX for quick-ish re-use
-        ld      IXL,    E               ; (need to restore 'HL' for each call)
-        ld      HL,     _keywords@fn    ; is "fn" keyword?
-        call    compareString           ; do the string comparison, z=result
-        jr      z,      @key            ; => is a keyword
-        ld      D,      IXH             ; (I hate everything about this,
-        ld      E,      IXL             ;  but it's only 16 cycles)
-        ld      HL,     _keywords@let   ; is "let" keyword?
-        call    compareString           ; do the string comparison, z=result
-        jr      z,      @key            ; => is a keyword
-        ld      D,      IXH
-        ld      E,      IXL
-        ld      HL,     _keywords@var   ; is "var" keyword?
-        call    compareString           ; do the string comparison, z=result
-        jr      z,      @key            ; => is a keyword
-        ld      D,      IXH
-        ld      E,      IXL
-        ld      HL,     _keywords@get   ; is "get" keyword?
-        call    compareString           ; do the string comparison, z=result
-        jr      z,      @key            ; => is a keyword
+@number:
+        cp      '0'                     ; >= "0"?
+        jr      c,      +               ; (if not, not a number literal)
+        cp      '9'+1                   ; but also <= "9"?
+        jr      c,      @num            ; -- is number literal
++
 
-@name:  exx                             ; restore original token HL & DE
-        ld      A,      TOKEN_FUNCTION
+@name:  ld      A,      TOKEN_FUNCTION
         ret
 
-@key:   exx                             ; restore original token HL & DE
-        ld      A,      TOKEN_KEYWORD
+@num:   ld      A,      TOKEN_NUMBER
         ret
 
         ; comment:
@@ -199,7 +339,7 @@ _getToken:
         and     A                       ; (set flags!)
         ret     z                       ; if EOF, also return with TOKEN_EOF
         cp      ASCII_LF                ; "#\n"?
-        jr      z,      @next           ; yes, jump back to top of routine!
+        jp      z,      @next           ; yes, jump back to top of routine!
 
         ; is comment. keep reading bytes until end-of-line/file
         ;
@@ -210,16 +350,6 @@ _getToken:
         jr      nz,     @skip           ; no? keep reading chars
 
         jp      @next
-
-        ; string:
-        ;-----------------------------------------------------------------------
-@str:   ld      A,      TOKEN_STRING
-        ret
-
-        ; other token types:
-        ;-----------------------------------------------------------------------
-@num:   ld      A,      TOKEN_NUMBER
-        ret
 
 
 _readToken:
@@ -232,7 +362,7 @@ _readToken:
 ; the token is pushed to the heap as a length-prefixed string.
 ; the terminator is included at the end, where DE is situated,
 ; (for identifiying whitespace vs end-of-line / end-of-file
-; termination), but not as part of the length
+; termination), but not counted as part of the length
 ;
 ;    ----+--------------------------------------------------------+---+
 ;    ... | length ¦ " ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ W ¦ o ¦ r ¦ l ¦ d | " |
