@@ -3,9 +3,19 @@
 A nice looking functional, concatenative programming language for minimal systems.  
 By Kroc Camen.
 
+## Goals
+
+_Pling!_ is intended for rapid application development on 8-bit modern-retro hardware, such as the [Agon Light], where memory is constrained but CPU speed is adequate (typically 4 ~ 20 MHz).
+
+[Agon Light]: https://www.thebyteattic.com/p/agon.html
+
+The language has been specifically designed to be easy to parse on an 8-bit CPU with <= 64KB RAM:
+
 - Simple left-to-right, context-free parser. No look-ahead!
-- Can be parsed as a byte-at-a-time stream without backtracking
-- Intended for assembling & execution on very constrained systems
+- Can be parsed as a byte-at-a-time stream without backtracking; the whole source file does not have to be in RAM at once
+- Link-time modules provide easy code reuse without building monolithic binaries
+
+The syntax is minimal, but easy to read and understand.
 
 ## Comments:
 
@@ -33,14 +43,16 @@ A variable's value is changed with the `set` function.
 
 ## Numbers:
 
-    let DECIMAL     0
-    let HEXADECIMAL $01
-    let BINARY      %00000001
-    let FLOAT       1.0
+    let DECIMAL         0
+    let HEXADECIMAL     $01
+    let BINARY          %00000001
+    let FLOAT           1.0
 
 ## Arithmetic:
 
-Arithmetic is done purely left-to right, there is no operator precedence. The result of an infix calculation (e.g. 4 + 5) is totalled before proceeding to the next operator (e.g. * 3). This behaviour is intentional for simplicity of parsing, particularly by 8-bit CPUs and almost entirely does away with the need to nest parentheses.
+Arithmetic is done purely left-to right, there is no [operator precedence]. The result of an infix calculation (e.g. `4 + 5`) is totalled before proceeding to the next operator (e.g. `* 3`). This behaviour is intentional for simplicity of parsing, particularly by 8-bit CPUs and almost entirely does away with the need to nest parentheses.
+
+[operator precedence]: https://en.wikipedia.org/wiki/Order_of_operations
 
 Since there is no look-ahead, the brackets are required to indicate an expression that must be evaluated to produce the result -- an expression can be thought of a small inline function that produces a value.
 
@@ -75,7 +87,7 @@ An expression is the only place operators may be used.
 
 ## Functions:
 
-A lambda is a fixed, immutable list of values. A "value" is a number, a string, an expression, a function, other lambdas, and any other types. 
+A lambda is a fixed, immutable list of values. A "value" is a number, a string, an expression, a function, other lambdas, and any other types.
 
 Lambdas begin with `:` and end with `;`.
 
@@ -84,7 +96,7 @@ Lambdas begin with `:` and end with `;`.
 Any functions calls or expressions in the lambda are not evaluated until execution; the expressions are stored in the lambda in a frozen, uncalculated state.
 
 A function is a lambda with a name.  
-A function is defined by a name and a lambda of instructions:
+A function is defined with the `fn` keyword, a name and a lambda of instructions:
 
     fn three :
         ( 1 + 2 )

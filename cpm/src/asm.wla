@@ -104,14 +104,20 @@ file:
         ; file is assumed already open; finding and verifying
         ; files exist is up to the frontend to handle first
         ;
+        ld      HL,     [heap_addr]     ; get the current top of the heap
 
-_assembleRoot:
+
+_parseRoot:
 ;===============================================================================
 ; assemble source code starting at the root scope.
 ; certain keywords are only allowed from the root scope, e.g. imports
 ;-------------------------------------------------------------------------------
-        ld      HL,     [heap_addr]     ; get the current top of the heap
+        ; read a single token; the token type is returned in A
+        ; and the token-string is written to the top of the heap (HL)
         call    _getToken
+
+        ; function definitions can occur at the root scope
+        cp      A,      TKN_KEYWORD_FN
 
 ;;        ld      HL,     [heap_addr]
 ;;        inc     HL
@@ -122,6 +128,13 @@ _assembleRoot:
 ;;        inc     HL
 ;;        djnz    -
 
+        ret
+
+
+_parseFn:
+;===============================================================================
+; parse a function definition, (`fn` keyword)
+;-------------------------------------------------------------------------------
         ret
 
 
@@ -560,63 +573,6 @@ _eof:
         ret
 
 @str:   .ASC "\nEnd of File$"
-
-
-_parseToken:
-;===============================================================================
-; read a token from the source code and convert into a literal:
-;
-; out:  IX                              address of the value-struct on the heap
-;-------------------------------------------------------------------------------
-
-
-        ; comment?
-        ;-----------------------------------------------------------------------
-        ; the comment mark requires separation so that `#symbol` can be
-        ; a valid value name, therefore check for a single '#' by length
-        ;
-        dec     BC                      ; if BC=1, make it zero?
-
-        ; statement?
-        ;-----------------------------------------------------------------------
-
-        
-@hash:  
-
-@num:   
-
-@word:  
-
-        inc     HL
-
-        ld      B,      C
-        ld      C,      0
--       ld      A,      [HL]
-        call    osPrintChar
-        inc     HL
-        djnz    -
-
-        ret
-
-        ; convert a token-string to an integer-literal
-        ;-----------------------------------------------------------------------
-@int:   ret
-
-        ; convert a token-string to a string-literal
-        ;-----------------------------------------------------------------------
-        ; write the string length to the first two bytes of the token-string;
-        ; these are the reserved byte and the first speech-mark
-        ;
-@str:   inc     BC                      ; token length excludes reserved-byte!
-        ld      [HL],   C               ; lo-byte string length
-        inc     HL
-        ld      [HL],   B               ; hi-byte string length
-        dec     HL                      ; have to rewind HL to start of token
-
-        ; define a string value as the next thing on the heap,
-        ; pointing back to the fixed token-string
-        ld      A,      VALUE_STRING
-        jp      _pushValue
 
 
 _pushValueNext:

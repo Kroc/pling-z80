@@ -18,5 +18,5 @@ USAGE: \
     os.exit()
 end
 
-Asm = require( "src.asm" )
-Asm.AssembleFile( arg[1] )
+require( "src.asm" )
+local module = AssembleFileIntoModule( arg[1] )

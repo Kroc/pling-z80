@@ -221,15 +221,13 @@ A function call is simply a link to another list (Lambda) that has already been 
                                 |                   ^
                                 '-------------------'
 
-The language grammar is designed to not require forward-references, that is, calling a function before it's been defined. You must define a function before it can be called. This avoids having to do a second pass on the code to fix up forward-references and to minimise the amount of meta-data that needs to be held during assembly.
-
 The heading below describes the process of mapping function names in string form from the source code to the existing assembled code.
 
 ## The Dictionary
 
-A dictionary is a lookup of function names to their position within the assembled code. It is named after _Forth_'s dictionary (because it calls tokens "words").
+A dictionary is a lookup of symbol names to their position within the assembled code. It is named after _Forth_'s dictionary which calls tokens "words". When a token is not a literal value (like a string or number), the dictionary is searched for the symbol name. The dictionary is always searched _backwards_, that is, the most recently defined word first to the oldest word last. This allows for simple scope resolution, with newer defined words overriding older ones if they share the same name.
 
-The _Pling!_ keyword `fn` defines a new function. `fn` is a special keyword that only the assembler understands and does not exist in the assembled code when running.
+The _Pling!_ keyword `fn` defines a new function; it is a special keyword that only the assembler understands and does not exist in the assembled code when running.
 
 When the parser comes across the `fn` keyword, it reads the next token as the name of the function to use. A dictionary Value is created on top of the heap, pointing to the function name just captured.
 
@@ -240,14 +238,14 @@ When the parser comes across the `fn` keyword, it reads the next token as the na
         ^                              |
         '------------------------------'
 
-The type field is used for private flags. The data field points to the beginning of the function-name string. The next field will point to the next *dictionary* entry (when it occurs), *not* the beginning of the function lambda; the function lambda is assumed to immediately follow the dictionary entry:
+The type field is used for private flags. The data field points to the beginning of the function-name string. The "next" field points to the *previous dictionary entry* on the heap, not the beginning of the function lambda; the function lambda is assumed to immediately follow the dictionary entry:
 
         |<---        dictionary-entry        --->|< lambda >|
     ----+----------------------------------------+----------+
     ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |    ...   |
-    ----+------------+----------+----------------+----------+
-                     |          |
-      (name) <-------'          '----> (next dictionary-entry)
+    ----+-----------------------+----------------+----------+
+                                |
+    (previous dict-entry) <-----'
 
 The `next-ptr` field of the previous Value is not updated until after the function is defined and a non function-definition occurs. That is, the previous Value skips 'over' the function definition.
 
@@ -255,10 +253,12 @@ The `next-ptr` field of the previous Value is not updated until after the functi
         |                             |
     +---+---+---------------------+---v---+----
     | value | dict-entry ¦ lambda | value | ...
-    +-------+---^----+------------+-------+----
+    +-------+---+----^------------+-------+----
                 |    |
-    - - - ------'    '------> (dict-entry)
+    <- - - -----'    '------- (dict-entry)
 
-When a function name token is encountered, the chain of dictionary entries is followed to find the function.
+When a function name token is encountered, the chain of dictionary entries is followed to find the function. This is why dictionary entries are linked backwards through the heap, to search newest first.
 
-A more efficient method of building the dictionary and searching it might be used in the future, however the current method allows building directly on the heap during tokenisation without having to place a dictionary structure somewhere in memory that may grow too large, or the heap might run into.
+The language grammar is designed to not require forward-references, that is, calling a function before it's been defined. You must define a function before it can be called. This avoids having to do a second pass on the code to fix up forward-references and to minimise the amount of meta-data that needs to be held during assembly.
+
+A more efficient method of building the dictionary and searching it might be used in the future, however the current method allows building directly on the heap during tokenisation without having to place a dictionary structure somewhere in memory that may grow too large, or that the heap might run into!

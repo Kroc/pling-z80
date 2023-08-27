@@ -38,5 +38,7 @@
         "concatenative",
         "pling"
     ],
-    "Lua.runtime.version": "Lua 5.3"
+    "Lua.runtime.version": "Lua 5.3",
+    "zig.buildFilePath": "${workspaceFolder}/zig/build.zig",
+    "zig.buildOnSave": true
 }

@@ -4,17 +4,6 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Agon: Build & Run",
-            "type": "shell",
-            "windows": {
-                "command": "agon\\build.bat"
-            },
-            "problemMatcher": [],
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            }
-        },{
             "label": "RunCPM: Build & Run",
             "type": "shell",
             "windows": {
@@ -24,6 +13,17 @@
             "group": {
                 "kind": "build",
                 "isDefault": true
+            }
+        },{
+            "label": "Agon: Build & Run",
+            "type": "shell",
+            "windows": {
+                "command": "agon\\build.bat"
+            },
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
             }
         }
     ]
