@@ -5,7 +5,7 @@
 -- the interface contains function name lookups to the functions in the code
 -- portion to allow external modules to link ("bind") at load time
 
-require( "src.value" )
+require( "src.word" )
 require( "src.list" )
 
 -- module class template

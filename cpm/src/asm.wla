@@ -82,16 +82,16 @@ TKN_PEEK                = ASC_PEEK
 .ENUMID TKN_OP_LTE                      ; the "<=" operator
 .ENUMID TKN_OP_OR                       ; the logical "or" operator
 
-; values:
+; words:
 ;-------------------------------------------------------------------------------
 .ENUMID 1
-.ENUMID VALUE_STRING                    ; string literal
-.ENUMID VALUE_INTEGER                   ; integer literal
+.ENUMID WORD_STRING                     ; string literal
+.ENUMID WORD_INTEGER                    ; integer literal
 
-.STRUCT Value
-        type            BYTE            ; value type, `VALUE_*` const
+.STRUCT Word
+        type            BYTE            ; word type, `WORD_*` const
         data_ptr        WORD            ; data-pointer
-        next_ptr        WORD            ; next-pointer (next value in list)
+        next_ptr        WORD            ; next-pointer (next word in list)
         row             WORD            ; line-number
         col             BYTE            ; column-number
 .ENDST
@@ -448,7 +448,7 @@ _readToken:
         jr      c,      @skip           ; keep reading blank chars
 
         ; for error-messages, the row/column of the first character
-        ; needs to be recorded for when the value-struct is created
+        ; needs to be recorded for when the word-struct is created
         ;
         ld      DE,             [row]
         ld      [token_row],    DE
@@ -575,10 +575,10 @@ _eof:
 @str:   .ASC "\nEnd of File$"
 
 
-_pushValueNext:
+_pushWordNext:
 ;===============================================================================
-; adds a Value to the heap that points to the next position in the heap:
-; (this is used for Lambdas and other nested values)
+; adds a word to the heap that points to the next position in the heap:
+; (this is used for Lambdas and other nested words)
 ;
 ;    ----+----------------------------------------+
 ;    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
@@ -587,49 +587,49 @@ _pushValueNext:
 ;                     '---------------------------'
 ;-------------------------------------------------------------------------------
         ; copy the temporary top of the heap to the data-pointer,
-        ; and then add the length of a value-struct
+        ; and then add the length of a word-struct
         ;
         ld      H,      D
         ld      L,      E
-        ld      BC,     _sizeof_Value
+        ld      BC,     _sizeof_Word
         add     HL,     BC
 
         ; fallthrough
         ; ...
 
-_pushValue:
+_pushWord:
 ;===============================================================================
-; adds a Value to the heap:
+; adds a word to the heap:
 ;
-; a value-structure is added to the top of the heap and partially populated
+; a word-structure is added to the top of the heap and partially populated
 ;
 ;    ----+----------------------------------------+
 ;    ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
 ;    ----+----------------------------------------+
 ;
-; in:   DE                              heap address to write value-struct
-;       A                               value-type
+; in:   DE                              heap address to write word-struct
+;       A                               word-type
 ;       HL                              data-pointer
 ;-------------------------------------------------------------------------------
-        ; IX is now the address for the value-struct to come;
+        ; IX is now the address for the word-struct to come;
         ; we use IX because the struct has multiple fields
         ld      IXH,    D
         ld      IXL,    E
-        ; populate the value-type
+        ; populate the word-type
         ; (for the first byte, DE == IX+$00)
         ld      [DE],   A
         ; populate the data-pointer
-        ld      [IX+Value.data_ptr+LO], L
-        ld      [IX+Value.data_ptr+HI], H
+        ld      [IX+Word.data_ptr+LO],  L
+        ld      [IX+Word.data_ptr+HI],  H
         ; populate row (line-number) and column from the last read token
         ld      DE,     [token_row]
-        ld      [IX+Value.row+LO],      E
-        ld      [IX+Value.row+HI],      D
+        ld      [IX+Word.row+LO],       E
+        ld      [IX+Word.row+HI],       D
         ld      A,      [token_col]
-        ld      [IX+Value.col],         A
+        ld      [IX+Word.col],          A
         ; zero the next-pointer
         xor     A
-        ld      [IX+Value.next_ptr+LO], A
-        ld      [IX+Value.next_ptr+HI], A
+        ld      [IX+Word.next_ptr+LO],  A
+        ld      [IX+Word.next_ptr+HI],  A
 
         ret

@@ -143,7 +143,7 @@ function Assembler:parseLambda ()
         ------------------------------------------------------------------------
         -- end of lambda?
         if self.tokens.token == self.tokens.reserved.lambda_end then
-            self.tokens:next()              -- step over the semi-colon
+            self.tokens:next()          -- step over the semi-colon
             return lambda
         end
 

@@ -1,10 +1,10 @@
 -- Pling! Lua ver. (C) Kroc Camen, 2023
 -- Pling!s variant type
 
--- returns a table representing a Pling! Value-type;
+-- returns a table representing a Pling! word-type;
 -- the variant type Pling! uses throughout
 --
-function Value(
+function Word(
     value
 ,   row
 ,   col

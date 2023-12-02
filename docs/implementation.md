@@ -8,11 +8,11 @@ This document is speculative and doesn't represent working code / design.
 
 ## Source:
 
-_Pling!_ source code is represented as a list of _Values_.  
-Values are _Pling!_'s variant data type.
+_Pling!_ source code is represented as a list of _words_.  
+Words are _Pling!_'s variant data type.
 
 At the syntax level (regardless of implementation),  
-these are the Value Types provided by _Pling!_:
+these are the word types provided by _Pling!_:
 
 - A function call `echo` / lambda `:` ... `;`
 - A number, `0`, `$00`, `%00000000`
@@ -112,7 +112,7 @@ Every byte read *must* be handled and put somewhere as there is no way to go 'ba
 
 ### Intermediate Representation
 
-_Pling!_'s solution to indeterminate order is an intermediate representation using a linked-list of Value-types on a simple heap (i.e. no allocator).
+_Pling!_'s solution to indeterminate order is an intermediate representation using a linked-list of word-types on a simple heap (i.e. no allocator).
 
 A heap is a "pile" of data much like a stack where data is added to the top (or end, if we consider it horizontal) and only the top-most data can be removed.
 
@@ -122,8 +122,6 @@ A heap is a "pile" of data much like a stack where data is added to the top (or 
     ----+------+------+------+----------------->
 
 A heap is useful because it has no "gaps" (unused space) but there are severe restrictions -- only the top-most item can be expanded or contracted, and data can only be added or removed in-order. You cannot place two items on the heap and then remove the older (underneath) item first; all data is bound by scope.
-
-<!-- The use of a heap during assembly solves the problem of indeterminate order but is not space-efficient for execution where a binary form has already been saved to disk and retrieved. -->
 
 ## The Tokeniser
 
@@ -148,16 +146,16 @@ If the token is a number type, marked by a `$`, `%` or numerical digit then it i
     ... | num-type ¦ number |
     ----+-------------------+
 
-The datum of the Value has been captured but it is not the Value itself that can be executed. We now add a Value structure to the heap.
+The datum of the word has been captured but it is not the word itself that can be executed. We now add a word structure to the heap.
 
-        |<---   datum   --->|<---          value struct          --->|
+        |<---   datum   --->|<---           word struct          --->|
     ----+-------------------+----------------------------------------+
     ... | num-type ¦ number | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
     ----+-------------------+-----------+----------------------------+
         ^                               |
         '-------------------------------'
 
-The Value structure includes a 1-byte type that indicates that this Value is a number. The data-pointer contains the address in the heap of the Value's data. The next-pointer will point to the next Value in the current list (when reached), and the row and column fields contain the line-number and column of text in the source file where the original Value occurs (for printing of error messages).
+The word structure includes a 1-byte type that indicates that this word is a number. The data-pointer contains the address in the heap of the word's data. The next-pointer will point to the next word in the current list (when reached), and the row and column fields contain the line-number and column of text in the source file where the original word occurs (for printing of error messages).
 
 ### Strings
 
@@ -169,13 +167,13 @@ As a string is read in it is appended to the end of the heap like so; again with
 
 Strings can be much, much longer than other tokens, so once the entire string has been read in, the first *two* bytes of the string are replaced with the string-length. Note how this overwrites the opening quote-mark.
 
-    ----+-----------------------------------------------------------+
-    ... | string-length ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
-    ----+-----------------------------------------------------------+
+    ----+--------------------------------------------------------+
+    ... | str-length ¦ H ¦ e ¦ l ¦ l ¦ o ¦   ¦ w ¦ o ¦ r ¦ l ¦ d |
+    ----+--------------------------------------------------------+
 
-Now that the string has been captured on the heap, the Value structure is appended.
+Now that the string has been captured on the heap, the word structure is appended.
 
-        |<---  string  --->|<---          value struct          --->|
+        |<---  string  --->|<---           word struct          --->|
     ----+------------------+----------------------------------------+
     ... | str-len ¦ string | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col |
     ----+------------------+------------+---------------------------+
@@ -184,16 +182,16 @@ Now that the string has been captured on the heap, the Value structure is append
 
 ### Lambdas
 
-Since a lambda is a list within a list, a Value-structure is placed on the heap that will point to the next Value where the lambda will be assembled (be aware that a number / string literal might be added to the heap, before the next Value-struct).
+Since a lambda is a list within a list, a word-structure is placed on the heap that will point to the next word where the lambda will be assembled (be aware that a number / string literal might be added to the heap, before the next word-struct).
 
-        |<---          value struct          --->|
+        |<---          word struct           --->|
     ----+----------------------------------------+---------------
     ... | type ¦ data-ptr ¦ next-ptr ¦ row ¦ col | ... lambda ...
     ----+------------+---------------------------+---------------
         (lambda)     |                              ^
                      '------------------------------'
 
-The location [in the heap] of the parent list is remembered for later and the lambda is assembled, Value by Value, as any other. When that list terminates, the location of the parent list is recalled and the next-pointer is updated to point to the top of the heap where the parent list may continue.
+The location [in the heap] of the parent list is remembered for later and the lambda is assembled, word by word, as any other. When that list terminates, the location of the parent list is recalled and the next-pointer is updated to point to the top of the heap where the parent list may continue.
 
                                 .------------------------------.
                                 |                              v
@@ -229,7 +227,7 @@ A dictionary is a lookup of symbol names to their position within the assembled 
 
 The _Pling!_ keyword `fn` defines a new function; it is a special keyword that only the assembler understands and does not exist in the assembled code when running.
 
-When the parser comes across the `fn` keyword, it reads the next token as the name of the function to use. A dictionary Value is created on top of the heap, pointing to the function name just captured.
+When the parser comes across the `fn` keyword, it reads the next token as the name of the function to use. A dictionary entry is created on top of the heap, pointing to the function name just captured.
 
         |< function-name >|<---        dictionary-entry        --->|
     ----+-----------------+----------------------------------------+
@@ -247,15 +245,15 @@ The type field is used for private flags. The data field points to the beginning
                                 |
     (previous dict-entry) <-----'
 
-The `next-ptr` field of the previous Value is not updated until after the function is defined and a non function-definition occurs. That is, the previous Value skips 'over' the function definition.
+The `next-ptr` field of the previous entry is not updated until after the function is defined and a non function-definition occurs. That is, the previous entry skips 'over' the function definition.
 
-        .-----------------------------.
-        |                             |
-    +---+---+---------------------+---v---+----
-    | value | dict-entry ¦ lambda | value | ...
-    +-------+---+----^------------+-------+----
-                |    |
-    <- - - -----'    '------- (dict-entry)
+        .----------------------------.
+        |                            |
+    +---+--+---------------------+---v--+----
+    | word | dict-entry ¦ lambda | word | ...
+    +------+---+----^------------+------+----
+               |    |
+    <- - - ----'    '------- (dict-entry)
 
 When a function name token is encountered, the chain of dictionary entries is followed to find the function. This is why dictionary entries are linked backwards through the heap, to search newest first.
 

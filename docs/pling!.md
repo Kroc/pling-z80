@@ -87,7 +87,7 @@ An expression is the only place operators may be used.
 
 ## Functions:
 
-A lambda is a fixed, immutable list of values. A "value" is a number, a string, an expression, a function, other lambdas, and any other types.
+A lambda is a fixed, immutable list of Words. A "Word" is a number, a string, an expression, a function, other lambdas, and any other types. The term comes from Forth, where any space-separated set of characters is known as a "word".
 
 Lambdas begin with `:` and end with `;`.
 
@@ -112,8 +112,6 @@ Functions do not define a parameter list up-front, instead they take their param
     ;
     echo add 1 2                # prints "3"
 
-Note how functions return values by evaluation. So long as a value is not being used as a parameter to a function call, it is returned from the function.
-
 Local variables (and constants) can be defined within functions and exist only within the function scope. The `get` function acts the same as `var`, defining the variable, but also retrieving the parameter at the same time.
 
     fn add :
@@ -127,7 +125,7 @@ Local variables (and constants) can be defined within functions and exist only w
 
 ## Conditionals:
 
-An `if` block takes any value, including an expression, and a lambda to execute if the value resolves to true.
+An `if` block takes any word (including an expression) and a lambda to execute if the word evaluates to true.
 
     fn max :
         get first
@@ -139,7 +137,7 @@ An `if` block takes any value, including an expression, and a lambda to execute 
         second
     ;
 
-For if-then-else constructs, the function `if-else` takes a value and two lambdas, the first is executed if the value resolves to true and the second is executed otherwise.
+For if-then-else constructs, the function `if-else` takes a word and two lambdas, the first is executed if the word resolves to true and the second is executed otherwise.
 
     fn max :
         get first
@@ -151,7 +149,7 @@ For if-then-else constructs, the function `if-else` takes a value and two lambda
         ;
     ;
 
-The true & false parameters do not need to be lambdas, they can be function calls or even values to return:
+The true & false parameters do not need to be lambdas, they can be function calls or even words to return:
 
     fn min :
         get first
@@ -176,29 +174,29 @@ The true & false parameters do not need to be lambdas, they can be function call
 
 ## Lists:
 
-Lists are dynamically generated and managed lists of values.  
-If lambdas are functions as constants then lists are functions as variables.
+Lists are dynamically generated and managed lists of words.  
+If lambdas are 'functions as constants' then lists are 'functions as variables'.
 
 A list is defined by square brackets, either closed for an empty list, or containing a number of default values.
 
     var empty_list []
     var three_list [ 1 2 3 ]
 
-Unlike lambdas, expressions and function calls will be evaluated when defining the list. A list can be thought of as a function that allocates memory for a list and then begins populating the list with each value it comes across.
+Unlike lambdas, expressions and function calls will be evaluated when defining the list. A list can be thought of as a function that allocates memory for a list and then begins populating the list with each word it comes across.
 
 Functions for manipulating lists exist, but these are library functions rather than intrinsic syntax so I won't got into detail here.
 
-    count list                  # return number of values in list
-    first list                  # return first value in list
-    last list                   # return last value in list
-    push list value             # add value to end of list
-    pop list                    # remove (+return) last value in list
-    prepend list value          # add value to start of list
-    insert list index value     # insert value at index
-    replace list index value    # replace value at index
-    remove list index           # remove value at index
+    count list                  # return number of values in `list`
+    first list                  # return first value in `list`
+    last list                   # return last value in `list`
+    push list value             # add value to end of `list`
+    pop list                    # remove (+return) last word in `list`
+    prepend list value          # add word to start of `list`
+    insert list index value     # insert word at index
+    replace list index value    # replace word at index
+    remove list index           # remove word at index
     join list list              # join two lists together as one
-    slice list index length     # slice list starting at index
+    slice list index length     # slice `list` starting at index
 
 ### Indexing:
 
@@ -242,14 +240,14 @@ This means that, as well as parameters, functions can work on data that is pushe
 
 The data stack is always separate from the function return stack and any other implementation-specific stacks.
 
-Values returned by functions are being pushed on to the data stack, ergo a function can return more than one value:
+Words returned by functions are being pushed on to the data stack, ergo a function can return more than one word:
 
     fn potatoes :
         1
         2
     ;
 
-When we call a function with a parameter, such as `echo`, what we are really saying is that `echo` will print the result on top of the stack of what the following value / function evaluates to.
+When we call a function with a parameter, such as `echo`, what we are really saying is that `echo` will print the result on top of the stack of what the following word / function evaluates to.
 
     echo sir_lancelots_favourite_colour
 
@@ -257,10 +255,10 @@ When we call a function with a parameter, such as `echo`, what we are really say
 
 _Pling!_ is so named because an exclamation mark (also known as a "bang" or "pling") is a function that pops the top item off the stack instead of pushing something new on. It can be used as a replacement for parameters!
 
-    1                       # push the value "1" on to the data stack
-    echo !                  # pop a value off the data stack and print it
+    1                       # push the word "1" on to the data stack
+    echo !                  # pop a word off the data stack and print it
 
-Each value on the stack is opaque. It's important to understand that if you push a list on to the data stack, you will pop the entire list, not each item one-by-one:
+Each word on the stack is opaque. It's important to understand that if you push a list on to the data stack, you will pop the entire list, not each item one-by-one:
 
     [ 1 2 3 ]               # push a list on to the stack
     echo !                  # prints "[ 1 2 3 ]"!
@@ -275,7 +273,7 @@ You can temporarily move the data pointer into the list using a `with` block:
     ;
     echo !                  # prints "4"
 
-You can also take a list and iterate over it. The `each` function takes a list as a parameter (or, with `!`, the stack) and calls a function / lambda for each value in the list, automatically pointing the data parameter at the popped value.
+You can also take a list and iterate over it. The `each` function takes a list as a parameter (or, with `!`, the stack) and calls a function / lambda for each word in the list, automatically pointing the data parameter at the popped word.
 
     [ 1 2 3 ]
     each ! : echo ! ;           # prints "1", "2", "3"
@@ -285,18 +283,18 @@ If a list is nested however, we don't automatically get recursion:
     [ 1 2 [ 3 4 ]]
     each ! : echo ! ;           # prints "1", "2", "[ 3 4 ]"
 
-The `map` function calls a function for each value in a list and will handle the recursion for us. Note how we can also do away with the lambda since the `map` function takes a function name as a 2nd parameter.
+The `map` function calls a function for each word in a list and will handle the recursion for us. Note how we can also do away with the lambda since the `map` function takes a function name as a 2nd parameter.
 
     [ 1 2 [ 3 4 ]]
     map ! echo                  # prints "1", "2", "3", "4"
 
-The `?` function 'peeks' the stack value, but does not pop it. You can use this when you want to get the value atop the stack, but don't want to remove it.
+The `?` function 'peeks' the stack item, but does not pop it. You can use this when you want to get the word atop the stack, but don't want to remove it.
 
     [ 1 2 3 4 ]
     map ? echo                  # prints "1", "2", "3", "4"
-    echo count ?                # prints 4
+    echo count ?                # prints 4 (the list remained on the stack!)
 
-The `.` function throws away (or "drops") the value atop the stack.  
+The `.` function throws away (or "drops") the word atop the stack.  
 Use this when you need to level the stack for parameters you don't use.
 
     1 2 3 4                     # 4 items on stack, not a list
@@ -305,17 +303,17 @@ Use this when you need to level the stack for parameters you don't use.
 
 ## Data Types:
 
-In Forth it's easy to make mistakes where you put one value on the stack but you accidentally read it back and treat it as something it's not. Forth's lack of a type system exposes its unforgiving nature for beginners, or just feeling your way through a problem. Most modern Forth-like languages therefore include a type system.
+In Forth it's easy to make mistakes where you put one word on the stack but you accidentally read it back and treat it as something it's not. Forth's lack of a type system exposes its unforgiving nature for beginners, or just feeling your way through a problem. Most modern Forth-like languages therefore include a type system.
 
-Everything in _Pling!_ is a _list_ of _values_.
+Everything in _Pling!_ is a _list_ of _words_.
 
-_Values_ can be of any type:
+_Words_ can be of any type:
 
 * A _number_
 * A _string_
 * An _expression_, a kind of _list_ specific to operators
 * A _lambda_ -- a statically assembled list
-* A list -- a dynamically allocated list
+* A _list_ -- a dynamically allocated list
 * A _function_ name
 * A _structure_
 
@@ -325,7 +323,7 @@ A data type can be thought of as a class in other programming languages. Each da
 
 In _Pling!_, data types are the lowest-level primitives that are typically implemented in machine code. How the data is stored and retrieved is highly machine-specific, however _Pling!_ programs don't ever deal with the implementation details directly.
 
-The type of a value is bound to it. If you push a number to the data-stack you can not read it back as a function name. Whatever is pushed will always pop as the same type as it was before.
+The type of a word is bound to it. If you push a number to the data-stack you can not read it back as a function name. Whatever is pushed will always pop as the same type as it was before.
 
 ## Structures:
 
