@@ -42,6 +42,7 @@ row:                    .WORD $0000     ; current line-number in file
 col:                    .BYTE $00       ; current column-number in file
 char:                   .BYTE $00       ; current character
 
+pc                      .WORD $0000     ; assembly program-counter
 param:                  .BYTE $00       ; next parameter properties
 
 
@@ -52,7 +53,7 @@ assemble:
 
         ; parse a word from the input file (root context)
         ;-----------------------------------------------------------------------
-@word:  ld      C,      0               ; reset word length
+@word:  ;;ld      C,      0               ; reset word length
         ;;ld      HL,     word_buff       ; word buffer (80 chars)
 
         ; skip leading whitespace:
@@ -67,7 +68,8 @@ assemble:
         jr      z,      @comment        ; skip until end of line
 
         call    parseInstruction
-        ret
+
+        jr      @word
 
         ; skip comments
         ;-----------------------------------------------------------------------
@@ -82,6 +84,8 @@ assemble:
 
 parseInstruction:
 ;===============================================================================
+; parse a Z80 instruction into opcodes:
+;
 ; in:   HL              assembly addr to emit opcodes
 ; out:  HL              advanced to next [unused] addr
 ;       A|BC|DE         (clobbered)
@@ -89,14 +93,26 @@ parseInstruction:
         ld      DE,     opcodes         ; start at beginning of opcode tree
 
         ; the first character is already in A
-        set     4,      A               ; force lowercase
+        set     5,      A               ; force lowercase
         jr      +                       ; jump into the parsing loop
 
         ;=======================================================================
-        ; no match; try the next branch:
-        ;
-@skip:  inc     DE
-        inc     DE
+        ; match; follow the branch
+        ;-----------------------------------------------------------------------
+@match: inc     DE                      ; step over the character to the addr
+        ld      A,      [DE]            ; read the hi-byte / opcode-flags
+        
+        ; is it a jump to another branch, or an opcode? (opcode-flags have
+        ; to be in the hi-byte because a jump-address lo-byte could be >128)
+        and     A                       ; (set flags)
+        jp      m,      @opcode         ; high-bit set = this is an opcode
+
+        ex      AF,     AF'             ; put aside hi-byte / opcode-flags
+        inc     DE                      ; move to lo-byte
+        ld      A',     [DE]            ; read lo-byte / opcode
+        ld      E,      A'
+        ex      AF',    AF
+        ld      D,      A               ; integrate the hi-byte from earlier
 
         ; get character from input file:
         ;-----------------------------------------------------------------------
@@ -104,10 +120,14 @@ parseInstruction:
         cp      ASCII_SPC+1             ; is it whitespace? (hold carry...)
 
         ; force lowercase, without also affecting numbers/(most) punctuation
-        set     4,      A
+        set     5,      A
         jr      nc,     +
         xor     A                       ; any whitespace = end-of-word (0)
 +       ld      C,      A               ; set character to compare against
+
+        push    AF
+        call    osPrintChar             ; DEBUG!
+        pop     AF
 
         ; get character from opcode tree:
         ;-----------------------------------------------------------------------
@@ -120,37 +140,26 @@ parseInstruction:
 
         ; does the character match the one in the opcode tree?
         cp      A,      C
-        jr      nz,     @skip
+        jr      z,      @match
 
-        ; match; follow the branch
+        ; no match; try the next branch:
         ;-----------------------------------------------------------------------
-@match: inc     DE                      ; step over the character to the addr
-        ld      A,      [DE]            ; read the hi-byte / opcode-flags
-        
-        ; is it a jump to another branch, or an opcode? (opcode-flags have
-        ; to be in the hi-byte because a jump-address lo-byte could be >128)
-        and     A                       ; (set flags)
-        jp      m,      @opcode         ; high-bit set = this is an opcode
-
-        ex      AF,     AF'             ; put aside low-byte / opcode
-        inc     DE                      ; move to high-byte
-        ld      A',      [DE]            ; read high-byte / opcode-flags
-        ld      D,      A'
-        ex      AF',    AF
-        ld      E,      A               ; integrate the lo-byte from earlier
-        jr      @char                   ; process next input char
+@skip:  inc     DE
+        inc     DE
+        inc     DE
+        jr      @retry
 
         ;-----------------------------------------------------------------------
         ; handle continuation character / end-of-branch:
         ;
-        ; a continuation character has no branch, one character hsa to
+        ; a continuation character has no branch, one character has to
         ; immediately follow another; any mismatch is an unknown opcode
         ;
         ; if, after removing the high-bit, the char is null, then we've reached
         ; the end of a branch and there are no more alternate paths to take.
         ; this is also an unknown opcode
         ;
-@cont:  and     A                       ; remove top bit before comparison
+@cont:  and     %01111111               ; remove top bit before comparison
         jr      z,      @err            ; end of branch? (128 -> 0)
         cp      A,      C               ; compare with input char
         jr      nz,     @err            ; if they don't match, error!
@@ -189,13 +198,25 @@ parseInstruction:
         ;-----------------------------------------------------------------------
         ld      [param],        A
 
+        ld      A,      '-'
+        call    osPrintChar             ; DEBUG!
         ; ...
         ret
 
         ; not a recognised opcode!
         ;-----------------------------------------------------------------------
-@err:   ; ...
+@err:   ld      C,      BDOS_PRNSTR
+        ld      DE,     @errstr
+        call    BDOS
+
+        ld      C,      BDOS_RESET
+        jp      BDOS
+
         ret
+
+@errstr .ASC    "Invalid opcode.$"
+
+.ENDB
 
 _getChar:
 ;===============================================================================
@@ -244,7 +265,30 @@ _getChar:
 +       exx                             ; restore HL/DE
         ret
 
-.ENDB
+printHexByte:
+;===============================================================================
+; print a byte as hexadecimal:
+;
+; in:   A               byte to print
+; out:  A               (clobbered)
+;       BC|DE|HL|IXY    (undefined) -- depends on osPrintChar
+;
+; NOTE: multiple online sources cite this method, dating back to the 70s!
+;-------------------------------------------------------------------------------
+        push    AF
+        rra
+        rra
+        rra
+        rra
+        call    @digit
+        pop     AF
+@digit: and     %00001111               ; isolate low-nybble
+        add     $90                     ; magic?
+        daa                             ; adjust to decimal
+        adc     $40                     ; more magic?
+        daa                             ; adjust to decimal
+        jp      osPrintChar
+
 
 ; input buffer:
 ;===============================================================================

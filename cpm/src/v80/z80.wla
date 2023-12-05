@@ -1,5 +1,5 @@
 ; v80 CP/M (c) Kroc Camen 2023, MIT License
-; z80 parsing / opcode table
+; z80 parsing / opcode tree
 ;
 ; syntax:
 ; ==============================================================================
@@ -13,7 +13,7 @@
 ;       adc*iy nn
 ;       adc.r           ; r = a b c d e h l ixh ixl iyh iyl
 ;       adc.hl+rr       ; rr= bc de hl sp
-;       adc ??          ;
+;       adc nn          ;
 ;
 REG_A = 7
 REG_B = 0

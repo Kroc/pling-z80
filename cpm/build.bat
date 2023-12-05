@@ -40,5 +40,7 @@ IF ERRORLEVEL 1 EXIT /B 1
 REM # copy the COM files into the CP/M disk directory
 REM # "/N" forces an 8.3 filename in the destination
 COPY /N /Y "build\*.com" /B "%CPM_DIR%\A\0" /B
+REM # copy other v80 files
+COPY /N /Y "src\v80\*.v80" /A "%CPM_DIR%\A\0" /A
 
 START "RunCPM" /D "%CPM_DIR%" %RUN_CPM%

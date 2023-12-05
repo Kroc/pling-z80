@@ -70,15 +70,15 @@ boot:
         ; buggy in RunCPM, where non-zero values of E cause the disk to
         ; not be found upon warm boot
         ; 
-        ld      C,      BDOS_RESET
-        jp      BDOS
+        ret
 
         ; exit with a version error
         ;-----------------------------------------------------------------------
 @err:   ld      C,      BDOS_PRNSTR
         ld      DE,     @str
-        call    BDOS
-        ld      C,      BDOS_RESET
+        jp    BDOS
+
+@reset: ld      C,      BDOS_RESET
         jp      BDOS
 
 @str:   .ASC "Error: CP/M ", CPM_VER_STR, " or higher required!$"
