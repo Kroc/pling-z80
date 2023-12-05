@@ -211,6 +211,7 @@ osGetChar:
 @eof:   xor     A                       ; return null for end-of-file
 
 +       exx                             ; restore register set
+        and     A                       ; return zero-flag for character
         ret
 
 

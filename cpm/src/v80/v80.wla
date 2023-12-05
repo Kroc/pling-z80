@@ -1,0 +1,328 @@
+; v80 CP/M (c) Kroc Camen 2023, MIT License
+; a z80 assembler for Z80s
+;
+.INC    "cpm.wla"
+.INC    "v80/z80.wla"
+
+init:
+;===============================================================================
+        ; check for an automatic file-reference,
+        ; i.e. a file parameter was passed on the command line
+        ;
+        ; check filename first-letter in the built-in file-control-block
+        ld      A,      [command_fcb.filename]
+        cp      ' '+1                   ; non-visible char? $00-$20?
+        jp      c,      help            ; show help msg and quit
+
+        ; open file:
+        xor     A                       ; start reading at record 0
+        ld      [command_fcb.current_record],   A
+        ld      C,      BDOS_OPEN
+        ld      DE,     command_fcb     ; use default FileControlBlock
+        call    BDOS
+        and     A                       ; (set flags!)
+        jp      m,      @err            ; $FF = error
+
+        ; assemble the file
+        ;-----------------------------------------------------------------------
+        call    assemble
+        ;-----------------------------------------------------------------------
+
+        ; return to CP/M handler to quit the program
+        ret
+
+@err:   ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        jp      BDOS
+
+@str:   .ASC "File Not Found!$"
+
+;===============================================================================
+row:                    .WORD $0000     ; current line-number in file
+col:                    .BYTE $00       ; current column-number in file
+char:                   .BYTE $00       ; current character
+
+param:                  .BYTE $00       ; next parameter properties
+
+
+assemble:
+;===============================================================================
+        ; where we'll be assembling to
+        ld      DE,     __heap
+
+        ; parse a word from the input file (root context)
+        ;-----------------------------------------------------------------------
+@word:  ld      C,      0               ; reset word length
+        ;;ld      HL,     word_buff       ; word buffer (80 chars)
+
+        ; skip leading whitespace:
+        ;-----------------------------------------------------------------------
+-       call    _getChar                ; read a character (returns z-flag)
+        ret     z                       ; return C=0 for no word, end-of-file
+        cp      ASCII_SPC+1             ; ignore any ASCII code <= $20 (spc)
+        jr      c, -                    ; keep reading blank chars
+
+        ; first character determines the word type:
+        cp      ';'                     ; is comment?
+        jr      z,      @comment        ; skip until end of line
+
+        call    parseInstruction
+        ret
+
+        ; skip comments
+        ;-----------------------------------------------------------------------
+@comment:
+        call    _getChar                ; read next character (returns z-flag)
+        ret     z                       ; return C=0 for no word, end-of-file
+        cp      ASCII_LF                ; is newline?
+        jr      nz, -                   ; keep going until new line
+        jr      @word                   ; try get next word
+
+.BLOCK  "opcode-parser"
+
+parseInstruction:
+;===============================================================================
+; in:   HL              assembly addr to emit opcodes
+; out:  HL              advanced to next [unused] addr
+;       A|BC|DE         (clobbered)
+;-------------------------------------------------------------------------------
+        ld      DE,     opcodes         ; start at beginning of opcode tree
+
+        ; the first character is already in A
+        set     4,      A               ; force lowercase
+        jr      +                       ; jump into the parsing loop
+
+        ;=======================================================================
+        ; no match; try the next branch:
+        ;
+@skip:  inc     DE
+        inc     DE
+
+        ; get character from input file:
+        ;-----------------------------------------------------------------------
+@char:  call    _getChar                ; read from input file
+        cp      ASCII_SPC+1             ; is it whitespace? (hold carry...)
+
+        ; force lowercase, without also affecting numbers/(most) punctuation
+        set     4,      A
+        jr      nc,     +
+        xor     A                       ; any whitespace = end-of-word (0)
++       ld      C,      A               ; set character to compare against
+
+        ; get character from opcode tree:
+        ;-----------------------------------------------------------------------
+@retry: ld      A,      [DE]            ; read from current position in tree
+        and     A                       ; (set flags!)
+
+        ; if the top-bit is set, this is either a continutation character
+        ; (it must match and there is no branch) or an end of branch
+        jp      m,      @cont
+
+        ; does the character match the one in the opcode tree?
+        cp      A,      C
+        jr      nz,     @skip
+
+        ; match; follow the branch
+        ;-----------------------------------------------------------------------
+@match: inc     DE                      ; step over the character to the addr
+        ld      A,      [DE]            ; read the hi-byte / opcode-flags
+        
+        ; is it a jump to another branch, or an opcode? (opcode-flags have
+        ; to be in the hi-byte because a jump-address lo-byte could be >128)
+        and     A                       ; (set flags)
+        jp      m,      @opcode         ; high-bit set = this is an opcode
+
+        ex      AF,     AF'             ; put aside low-byte / opcode
+        inc     DE                      ; move to high-byte
+        ld      A',      [DE]            ; read high-byte / opcode-flags
+        ld      D,      A'
+        ex      AF',    AF
+        ld      E,      A               ; integrate the lo-byte from earlier
+        jr      @char                   ; process next input char
+
+        ;-----------------------------------------------------------------------
+        ; handle continuation character / end-of-branch:
+        ;
+        ; a continuation character has no branch, one character hsa to
+        ; immediately follow another; any mismatch is an unknown opcode
+        ;
+        ; if, after removing the high-bit, the char is null, then we've reached
+        ; the end of a branch and there are no more alternate paths to take.
+        ; this is also an unknown opcode
+        ;
+@cont:  and     A                       ; remove top bit before comparison
+        jr      z,      @err            ; end of branch? (128 -> 0)
+        cp      A,      C               ; compare with input char
+        jr      nz,     @err            ; if they don't match, error!
+        inc     DE                      ; match -- move to next char in tree
+        jr      @char
+
+        ; emit opcode:
+        ;-----------------------------------------------------------------------
+        ; the first byte is a set of flags for Z80-specifics
+        ; and what, if any, kind of parameter is required
+        ;
+@opcode bit     4,      A               ; bit 4 indicates an IX instruction
+        jr      z,      +
+        ld      [HL],   $dd             ; emit IX prefix byte ($DD)
+        inc     HL
+
++       bit     6,      A               ; bit 6 indicates an IY instruction
+        jr      z,      +
+        ld      [HL],   $fd             ; emit IY prefix byte ($FD)
+        inc     HL
+
++       bit     3,      A               ; bit 3 indicates extended ($CB) opcode
+        jr      z,      +               ; (these must appear after IX/IY bytes)
+        ld      [HL],   $cb             ; emit $CB prefix byte
+        inc     HL
+
++       bit     5,      A               ; bit 5 indicates extended ($ED) opcode
+        jr      z,      +               ; (these must appear after IX/IY bytes)
+        ld      [HL],   $ed             ; emit $ED prefix byte
+        inc     HL
++
+        ; now emit the opcode byte
+        ldi                             ; [HL]=[DE], HL++, DE++, BC--
+
+        ; handle parameters:
+        ;-----------------------------------------------------------------------
+        ld      [param],        A
+
+        ; ...
+        ret
+
+        ; not a recognised opcode!
+        ;-----------------------------------------------------------------------
+@err:   ; ...
+        ret
+
+_getChar:
+;===============================================================================
+; reads the next character in the file.
+; current row and column are maintained
+;
+; TODO: handle tab (next 8th char boundary)
+;
+; out:  A                               ASCII code, 0 for end-of-file
+;       DE, HL                          (preserved)
+;       BC, IX/Y                        (undefined)
+;-------------------------------------------------------------------------------
+        call    osGetChar               ; read a char from file
+        ld      [char], A               ; retain returned character
+
+        ; if end-of-file, return the null byte;
+        ; the caller will fold
+        and     A                       ; (set flags)
+        ret     z                       ; return on null byte
+
+        ; check for end of line:
+        ;-----------------------------------------------------------------------
+        cp      ASCII_CR                ; /r is always ignored,
+        jr      z,      __label__       ;  don't advance row/col, get next char
+
+        exx                             ; must preserve HL & DE
+        ld      HL',    col             ; prepare to increment column number
+
+        cp      ASCII_LF                ; /n is newline
+        jr      nz,     @col            ; if not, skip to next column
+
+        ; increment line-number:
+        ;-----------------------------------------------------------------------
+        ld      DE',    [row]           ; 16-bit load,
+        inc     DE'                     ;  and increment,
+        ld      [row],  DE'             ;  and write
+        ld      [HL'],  0               ; reset column number
+
+        ; increment column number:
+        ;-----------------------------------------------------------------------
+        ; (capped at 255 even though lines can be longer)
+@col:   inc     [HL']
+        jr      nz,     +               ; if roll over, roll back (less
+        dec     [HL']                   ;  instructions than read+add+write)
+
++       exx                             ; restore HL/DE
+        ret
+
+.ENDB
+
+; input buffer:
+;===============================================================================
+word_buff:
+;-------------------------------------------------------------------------------
+        .DSB 80, 0
+
+; * * *   H E A P   * * *
+;===============================================================================
+; at the end of the assembled binary, additional code / data
+; loaded / generated at runtime will be piled on the end!
+;
+heap_addr:
+;-------------------------------------------------------------------------------
+        .WORD   __heap                  ; pointer to current position in heap
+
+__heap: ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
+
+;///////////////////////////////////////////////////////////////////////////////
+
+help:
+;===============================================================================
+; print the help string:
+;-------------------------------------------------------------------------------
+        ld      C,      BDOS_PRNSTR
+        ld      DE,     @str
+        jp      BDOS
+
+@str:   .ASC "v80 CP/M v0, Kroc Camen 2023\n\n"
+        .ASC "    V80 SOURCE.V80$"
+
+
+/*getWord:
+;===============================================================================
+; read a word from the input file:
+; (automatically skips comments)
+;-------------------------------------------------------------------------------
+        ld      C,      0               ; return C=0 if no words remaining
+
+        ; skip leading whitespace:
+        ;-----------------------------------------------------------------------
+-       call    _getChar                ; read a character (returns z-flag)
+        ret     z                       ; return C=0 for no word, end-of-file
+        cp      ASCII_SPC+1             ; ignore any ASCII code <= $20 (spc)
+        jr      c, -                    ; keep reading blank chars
+
+        ; first character determines the word type
+        cp      ';'                     ; is comment?
+        jr      nz, +                   ; skip until end of line
+
+        ; skip comments
+        ;-----------------------------------------------------------------------
+-       call    _getChar                ; read next character (returns z-flag)
+        ret     z                       ; return C=0 for no word, end-of-file
+        cp      ASCII_LF                ; is newline?
+        jr      nz, -                   ; keep going until new line
+        jr      __label__               ; try get next word
+
+        ;-----------------------------------------------------------------------
+        ; add the first character to the buffer
+        ;
++       ld      HL,     word_buff       ; read into the word buffer (80 chars)
+        inc     C                       ; set starting length of word
+        ld      [HL],   A               ; write first character
+        inc     HL                      ; move to next space in buffer
+
+        ; read characters:
+        ;-----------------------------------------------------------------------
+@next:  call    _getChar                ; read next character
+        cp      ASCII_SPC               ; check for non-visible character
+        jr      nc,     +               ; stop if whitespace found
+        inc     C                       ; increase character count
+        ld      [HL],   A               ; add to the word buffer
+        inc     HL                      ; and move to the next character
+        jr      @next
+
+        ; null-terminate the string
++       xor     A
+        ld      [HL],   A
+
+        ret*/
