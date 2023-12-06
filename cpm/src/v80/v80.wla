@@ -42,30 +42,37 @@ row:                    .WORD $0000     ; current line-number in file
 col:                    .BYTE $00       ; current column-number in file
 char:                   .BYTE $00       ; current character
 
-pc                      .WORD $0000     ; assembly program-counter
 param:                  .BYTE $00       ; next parameter properties
+
+; as assembly progresses, the dictionary of symbols and deferred calculations
+; will be built up here. this position is currently arbitrary and ideally I
+; want the heap to build downwards from top of memory, even on the stack itself
+.DEF    heap            $c000
+
+head:                   .WORD heap      ; current position on the heap
 
 
 assemble:
 ;===============================================================================
-        ; where we'll be assembling to
-        ld      DE,     __heap
-
+; assembles a file:
+;
+; TODO: do the file opening here so that we can do includes
+;-------------------------------------------------------------------------------
         ; parse a word from the input file (root context)
         ;-----------------------------------------------------------------------
-@word:  ;;ld      C,      0               ; reset word length
-        ;;ld      HL,     word_buff       ; word buffer (80 chars)
-
+        ; where we'll be assembling to
+        ld      HL,     [code]
+  
         ; skip leading whitespace:
         ;-----------------------------------------------------------------------
--       call    _getChar                ; read a character (returns z-flag)
+@word:  call    _getChar                ; read a character (returns z-flag)
         ret     z                       ; return C=0 for no word, end-of-file
         cp      ASCII_SPC+1             ; ignore any ASCII code <= $20 (spc)
-        jr      c, -                    ; keep reading blank chars
+        jr      c, @word                ; keep reading blank chars
 
         ; first character determines the word type:
         cp      ';'                     ; is comment?
-        jr      z,      @comment        ; skip until end of line
+        jr      z,      @skip           ; skip until end of line
 
         call    parseInstruction
 
@@ -73,14 +80,11 @@ assemble:
 
         ; skip comments
         ;-----------------------------------------------------------------------
-@comment:
-        call    _getChar                ; read next character (returns z-flag)
+@skip:  call    _getChar                ; read next character (returns z-flag)
         ret     z                       ; return C=0 for no word, end-of-file
         cp      ASCII_LF                ; is newline?
-        jr      nz, -                   ; keep going until new line
+        jr      nz, @word               ; keep going until new line
         jr      @word                   ; try get next word
-
-.BLOCK  "opcode-parser"
 
 parseInstruction:
 ;===============================================================================
@@ -90,10 +94,11 @@ parseInstruction:
 ; out:  HL              advanced to next [unused] addr
 ;       A|BC|DE         (clobbered)
 ;-------------------------------------------------------------------------------
+.BLOCK  "opcode-parser"
         ld      DE,     opcodes         ; start at beginning of opcode tree
 
         ; the first character is already in A
-        set     5,      A               ; force lowercase
+        set     5,      A               ; force lowercase (see desc. below)
         jr      +                       ; jump into the parsing loop
 
         ;=======================================================================
@@ -101,33 +106,47 @@ parseInstruction:
         ;-----------------------------------------------------------------------
 @match: inc     DE                      ; step over the character to the addr
         ld      A,      [DE]            ; read the hi-byte / opcode-flags
-        
+        inc     DE                      ; move to lo-byte / opcode-byte
+
         ; is it a jump to another branch, or an opcode? (opcode-flags have
         ; to be in the hi-byte because a jump-address lo-byte could be >128)
         and     A                       ; (set flags)
         jp      m,      @opcode         ; high-bit set = this is an opcode
 
-        ex      AF,     AF'             ; put aside hi-byte / opcode-flags
-        inc     DE                      ; move to lo-byte
-        ld      A',     [DE]            ; read lo-byte / opcode
-        ld      E,      A'
-        ex      AF',    AF
-        ld      D,      A               ; integrate the hi-byte from earlier
+        ex      DE,     HL              ; swap DE|HL due to Z80 limitations
+        ld      L,      [HL]            ; read lo-byte
+        ld      H,      A               ; apply the hi-byte from before
+        ex      DE,     HL              ; swap DE|HL back
 
         ; get character from input file:
         ;-----------------------------------------------------------------------
 @char:  call    _getChar                ; read from input file
         cp      ASCII_SPC+1             ; is it whitespace? (hold carry...)
 
-        ; force lowercase, without also affecting numbers/(most) punctuation
-        set     5,      A
-        jr      nc,     +
+        ; force lowercase, without also affecting numbers/(most) punctuation:
+        ;
+        ; this essentially forces ASCII codes 64-95 (@A-Z[\]^_) to codes
+        ; 96-127 (`a-z{|}~) which makes A-Z lowercase with the caveat that
+        ; some punctuation cannot be differentiated "@"<->"`", "[]"<->"{}"",
+        ; "\"<->"|" and "^"<->"~" but we aren't using any of those in the
+        ; instruction names anyway
+        ;
+        ; it also means that ASCII codes 0-31 (non-visible) are promoted
+        ; to 32-64 (visible), but we have already checked for ASCII codes
+        ; 32 (space) or below and this is signalled by the carry flag; so
+        ; even though the below instruction would change tab into ")", we
+        ; will undo this afterwards
+        ;
+        set     5,      A               ; force partial lowercase
+        jr      nc,     +               ; was this a non-visible char before?
         xor     A                       ; any whitespace = end-of-word (0)
-+       ld      C,      A               ; set character to compare against
++       ld      C,      A               ; set as character to compare against
 
+        ;///////////////////////////////////////////////////////////////////////
         push    AF
         call    osPrintChar             ; DEBUG!
         pop     AF
+        ;///////////////////////////////////////////////////////////////////////
 
         ; get character from opcode tree:
         ;-----------------------------------------------------------------------
@@ -168,38 +187,60 @@ parseInstruction:
 
         ; emit opcode:
         ;-----------------------------------------------------------------------
-        ; the first byte is a set of flags for Z80-specifics
+@opcode ld      [param],        A       ; retain flags for parameter fetching
+        ld      C,      A               ; retain the opcode-flags byte
+        ld      A,      [DE]            ; read the opcode byte
+
+        ; with the instruction matched to opcode, we no longer need
+        ; the tree position; load up the virtual program-counter
+        ld      DE,     [pc]
+
+        ; the flags byte is a set of flags for Z80-specifics
         ; and what, if any, kind of parameter is required
         ;
-@opcode bit     4,      A               ; bit 4 indicates an IX instruction
+        bit     4,      C               ; bit 4 indicates an IX instruction
         jr      z,      +
         ld      [HL],   $dd             ; emit IX prefix byte ($DD)
-        inc     HL
+        inc     HL                      ; move to next byte in code segment
+        inc     DE                      ; increment virtual program-counter
 
-+       bit     6,      A               ; bit 6 indicates an IY instruction
++       bit     6,      C               ; bit 6 indicates an IY instruction
         jr      z,      +
         ld      [HL],   $fd             ; emit IY prefix byte ($FD)
-        inc     HL
+        inc     HL                      ; move to next byte in code segment
+        inc     DE                      ; increment virtual program-counter
 
-+       bit     3,      A               ; bit 3 indicates extended ($CB) opcode
++       bit     3,      C               ; bit 3 indicates extended ($CB) opcode
         jr      z,      +               ; (these must appear after IX/IY bytes)
         ld      [HL],   $cb             ; emit $CB prefix byte
-        inc     HL
+        inc     HL                      ; move to next byte in code segment
+        inc     DE                      ; increment virtual program-counter
 
-+       bit     5,      A               ; bit 5 indicates extended ($ED) opcode
++       bit     5,      C               ; bit 5 indicates extended ($ED) opcode
         jr      z,      +               ; (these must appear after IX/IY bytes)
         ld      [HL],   $ed             ; emit $ED prefix byte
-        inc     HL
+        inc     HL                      ; move to next byte in code segment
+        inc     DE                      ; increment virtual program-counter
 +
-        ; now emit the opcode byte
-        ldi                             ; [HL]=[DE], HL++, DE++, BC--
+
+        ; TODO: DD|FB + CB opcodes put the opcode after the parameter!
+        ; we'll have to reserve the parameter and return here
+
+        ld      [HL],   A               ; now emit the opcode byte
+        inc     HL
+
+        ld      [code], HL              ; write back code segment position
+        ld      [pc],   DE              ; write back virtual program-counter
 
         ; handle parameters:
         ;-----------------------------------------------------------------------
-        ld      [param],        A
+        
 
+        ;///////////////////////////////////////////////////////////////////////
         ld      A,      '-'
         call    osPrintChar             ; DEBUG!
+        ;///////////////////////////////////////////////////////////////////////
+
         ; ...
         ret
 
@@ -296,22 +337,25 @@ word_buff:
 ;-------------------------------------------------------------------------------
         .DSB 80, 0
 
-; * * *   H E A P   * * *
+; * * *   O B J E C T   C O D E   * * *
 ;===============================================================================
-; at the end of the assembled binary, additional code / data
-; loaded / generated at runtime will be piled on the end!
+; this is where the assembled code will be placed;
+; anything beyond this point will be overwritten
 ;
-heap_addr:
+pc:     .WORD $0000                     ; assembly virtual program-counter
+code:
 ;-------------------------------------------------------------------------------
-        .WORD   __heap                  ; pointer to current position in heap
+        .WORD __code                    ; pointer to current position
 
-__heap: ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
+__code: ; WARNING: ANYTHING PLACED AFTER HERE WILL BE OVERWRITTEN
 
 ;///////////////////////////////////////////////////////////////////////////////
 
 help:
 ;===============================================================================
 ; print the help string:
+;
+; this isn't needed once assembly starts, so it gets overwritten
 ;-------------------------------------------------------------------------------
         ld      C,      BDOS_PRNSTR
         ld      DE,     @str
